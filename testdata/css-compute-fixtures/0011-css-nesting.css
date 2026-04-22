@@ -1,0 +1,8 @@
+@media (min-width: 60rem) {
+  .grid {
+    --gap: 1rem;
+    gap: var(--gap);
+    color: #1a2b3c;
+  }
+}
+

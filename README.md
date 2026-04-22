@@ -95,6 +95,13 @@ Override those with environment variables when needed, for example:
 CHUNK_SIZE=50 MEMORY_LIMIT_MB=384 sh tools/check-css-corpus-compute-all.sh /tmp/lexers-css-corpus
 ```
 
+For stable real-CSS computed-style regression checks that survive `/tmp`
+cleanup, use the copied fixture files in `testdata/css-compute-fixtures/`:
+
+```sh
+racket tools/check-css-compute-fixtures.rkt
+```
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

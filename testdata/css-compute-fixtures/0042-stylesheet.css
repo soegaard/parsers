@@ -1,0 +1,455 @@
+@charset "UTF-8";
+
+@media all {html {font-size: 18px;}}
+@media all and (max-width:1000px){html {font-size: 18px;}}
+@media all and (max-width:990.0px){html {font-size: 17.75px;}}
+@media all and (max-width:980.0px){html {font-size: 17.5px;}}
+@media all and (max-width:970.0px){html {font-size: 17.25px;}}
+@media all and (max-width:960.0px){html {font-size: 17.0px;}}
+@media all and (max-width:950.0px){html {font-size: 16.75px;}}
+@media all and (max-width:940.0px){html {font-size: 16.5px;}}
+@media all and (max-width:930.0px){html {font-size: 16.25px;}}
+@media all and (max-width:920.0px){html {font-size: 16.0px;}}
+@media all and (max-width:910.0px){html {font-size: 15.75px;}}
+@media all and (max-width:900.0px){html {font-size: 15.5px;}}
+@media all and (max-width:890.0px){html {font-size: 15.25px;}}
+@media all and (max-width:880.0px){html {font-size: 15.0px;}}
+@media all and (max-width:870.0px){html {font-size: 14.75px;}}
+@media all and (max-width:860.0px){html {font-size: 14.5px;}}
+@media all and (max-width:850.0px){html {font-size: 14.25px;}}
+@media all and (max-width:840.0px){html {font-size: 14.0px;}}
+@media all and (max-width:830.0px){html {font-size: 13.75px;}}
+@media all and (max-width:820.0px){html {font-size: 13.5px;}}
+@media all and (max-width:810.0px){html {font-size: 13.25px;}}
+@media all and (max-width:800.0px){html {font-size: 13.0px;}}
+@media all and (max-width:790.0px){html {font-size: 12.75px;}}
+@media all and (max-width:780.0px){html {font-size: 12.5px;}}
+@media all and (max-width:770.0px){html {font-size: 12.25px;}}
+@media all and (max-width:760.0px){html {font-size: 12.0px;}}
+@media all and (max-width:750.0px){html {font-size: 11.75px;}}
+@media all and (max-width:740.0px){html {font-size: 11.5px;}}
+@media all and (max-width:730.0px){html {font-size: 11.25px;}}
+@media all and (max-width:720.0px){html {font-size: 11.0px;}}
+@media all and (max-width:710.0px){html {font-size: 10.75px;}}
+@media all and (max-width:700.0px){html {font-size: 10.5px;}}
+
+
+
+@page {
+  size: A4;
+}
+
+
+* {
+  padding:         0;
+  margin:          0;
+  border:          0;
+  font-weight:     inherit;
+  font-style:      inherit;
+  font-size:       inherit;
+  text-decoration: inherit;
+  color:           inherit;
+ }
+
+body {
+}
+
+#doc {
+ width: 87.5%;
+ margin-left: auto;
+ margin-right: auto;
+ padding-left: 12.5%;
+ max-width: 1400px;
+
+    margin-top:    6rem;
+    margin-bottom: 6rem;
+    text-rendering: optimizeLegibility;
+    font-feature-settings: 'kern' 1;
+
+    font-family: "Crimson Text", serif;
+    color: #222;
+    line-height: 1.4;
+}
+
+
+
+span.math {
+    text-align: left !important;
+}
+
+
+span.div.MathJax_Display {
+  margin-top: 0rem!important ;
+  background-color: red;
+}
+
+
+
+div.book {
+
+    margin-left: 3rem;
+    width: 30rem;
+    margin-right: 14rem;
+    font-feature-settings: 'ss04' 1;
+    font-family: "Crimson Text", serif;
+    line-height:   1.1;
+    font-size:     2.00rem;
+    width:        24.00rem;
+    margin-top:    0.25rem;
+    margin-bottom: 1.50rem;
+}
+
+div.part {
+
+    margin-left: 3rem;
+    width: 30rem;
+    margin-right: 14rem;
+    font-feature-settings: 'ss04' 1;
+    font-family: "Crimson Text", serif;
+    line-height:   1.1;
+    font-size:     2.00rem;
+    width:        24.00rem;
+    margin-top:    0.25rem;
+    margin-bottom: 1.50rem;
+}
+
+div.chapter, div.index {
+
+    margin-left: 3rem;
+    width: 30rem;
+    margin-right: 14rem;
+    font-feature-settings: 'ss04' 1;
+    font-family: "Crimson Text", serif;
+    line-height:   1.1;
+    font-size:     2.00rem;
+    width:        24.00rem;
+    margin-top:    0.25rem;
+    margin-bottom: 1.50rem;
+}
+
+/* toc_header sames as div.chapter except for no block metrics */
+div.toc_header {
+    font-feature-settings: 'ss04' 1;
+    font-family: "Crimson Text", serif;
+    line-height:   1.1;
+    font-size:     2.00rem;
+    width:        24.00rem;
+    margin-top:    0.25rem;
+    margin-bottom: 1.50rem;
+}
+
+
+div.section {
+
+    margin-left: 3rem;
+    width: 30rem;
+    margin-right: 14rem;
+  font-feature-settings: 'ss04' 1, 'c2sc' 1;
+  font-family:  sans-serif;  font-size:      1.5rem;
+  line-height:    1.2;
+  padding-top:    0.7rem;
+  padding-bottom: 0.3rem;
+  clear: both;
+}
+
+div.subsection {
+
+    margin-left: 3rem;
+    width: 30rem;
+    margin-right: 14rem;
+  font-feature-settings: 'ss04' 1, 'c2sc' 1;
+  font-family:  sans-serif;  font-size:      1.2rem;
+  line-height:    1.2;
+  padding-top:    0.7rem;
+  padding-bottom: 0.3rem;
+  clear: both;
+}
+
+div.paragraph {
+
+    margin-left: 3rem;
+    width: 30rem;
+    margin-right: 14rem;
+  font-size: 1rem;
+  margin-bottom: 0.8rem;
+}
+
+div.exercise-body div.paragraph {
+
+    margin-left: 0rem;
+    margin-right: 0rem;
+  font-size: 1rem;
+  margin-bottom: 0.8rem;
+}
+
+pre {
+
+    margin-left: 3rem;
+    width: 30rem;
+    margin-right: 14rem;
+   font-size:     0.9rem;
+   margin-bottom: 0.8rem;
+}
+
+div.itemization {
+  margin-left:   2.0rem;
+}
+
+
+img {
+  margin-bottom: 0.8rem;
+}
+
+.sidenote > img  {
+}
+
+.figure > img {
+  margin-bottom: 0.8rem;
+}
+
+.svgobj {
+}
+
+.centered .svgobj {
+    margin-left:  auto;
+    margin-right: auto;
+    display: block;
+    text-align: center;
+}
+
+.indented  {
+    margin-left:  3rem;
+    margin-right: auto;
+    display: block;
+}
+
+
+.sidenote, .marginnote {
+  float: right;
+  clear: right;
+  margin-right: -60%;
+  margin-top: 0rem;
+  margin-bottom: 0;
+  width: 50%;
+  font-size: 1.0rem;
+  line-height: 1.3;
+  vertical-align: baseline;
+  position: relative;
+}
+
+.hovernote {
+  position: relative;
+}
+
+.hovernotecontents:hover {
+  background: #f3f3fb;
+  transition-property: background;
+transition-duration: 0.2s;
+
+  border-radius: 8px;
+}
+
+.hovernotecontents { transition-property: background;
+transition-duration: 0.2s;
+
+}
+
+.hovernotenote {
+   transform: translateX(-50%);  text-align: center;
+   border-radius: 8px;
+   display: block;
+   min-width: 1000%;
+   position: absolute;
+   visibility: hidden;
+   z-index: 1;
+   background-color: gold;
+}
+
+.hovernotecontents:after {
+    content:     "\FEFF⁺";
+    margin-left: -0.20em;
+    font-size:   90%;
+    top:        -0.10em;
+    color:       #933;
+}
+
+.hovernote:hover .hovernotenote {
+  visibility: visible;
+  position: absolute;
+  left: 50%;
+  bottom: 105%;
+}
+
+
+
+.figure {
+  float: right;
+text-align: center;
+  font-style: italic;
+  font-size: smaller;
+  text-indent: 0;
+margin: 0.5em;
+  padding: 0.5em;
+}
+
+.figure_left {
+  float: left;
+text-align: center;
+  font-style: italic;
+  font-size: smaller;
+  text-indent: 0;
+  margin: 0.5em;
+  padding: 0.5em;
+}
+
+#doc a:hover {
+  background: #f3f3fb;
+  transition-property: background;
+  transition-duration: 0.2s;
+
+  border-radius: 8px;
+}
+
+a { transition-property: background;
+    transition-duration: 0.2s;
+}
+
+a.external:after {
+    content:     "\FEFF °";
+    margin-left: 0.10em;
+    font-size:   90%;
+    top:        -0.10em;
+    color:       #933;
+}
+
+a.internal:after {
+    content:     "\FEFF °";
+    margin-left: 0.10em;
+    font-size:   90%;
+    top:        -0.10em;
+    color:       #339;
+}
+
+payload-tag.payload-class {
+
+    margin-left: 3rem;
+    width: 30rem;
+    margin-right: 14rem;
+}
+
+.payload-class p {
+  margin-left: 0;
+  width: inherit;
+  margin-right: 0;
+}
+
+
+table {
+    display: table;
+    border-collapse: collapse;
+}
+
+.centered table{
+    margin-left:  auto;
+    margin-right: auto;
+}
+
+
+th, td {
+    border: 1px solid black;
+}
+
+td {
+  padding: 4px;
+}
+
+
+span.italic      { font-style:  italic      }
+span.normal      { font-style:  normal      }
+span.oblique     { font-style:  oblique     }
+span.intial      { font-style:  initial     }
+span.bold        { font-weight: bold        }
+span.bolder      { font-weight: bolder      }
+span.lighter     { font-weight: lighter     }
+span.smallcaps   { font-variant: small-caps }
+span.typewriter  { font-family:  monospace;
+                   font-size:    90%;
+}
+span.superscript { vertical-align: super;
+                   font-size: 80% }
+span.subscript   { vertical-align: sub;
+                   font-size: 80% }
+img.centered     { display: block;
+                   margin-left:  auto;
+                   margin-right: auto;
+}
+
+
+@media print {
+      body, article {
+      width: 100%;
+      margin: 0;
+      padding: 0;
+   }
+
+   @page {
+      margin: 2cm;
+   }
+}
+
+#doc nav {
+
+  margin-left: 3rem;
+  width: 30rem;
+  margin-right: 14rem;
+  margin-bottom: 2rem;
+}
+
+nav > ol { list-style-type: none }
+.toc li  { clear: both }
+
+.toc_numbering {
+  float:       left;
+  width:       3rem;
+  white-space: nowrap;
+}
+
+
+toc_entry { }
+span.toc_chapter {
+}
+span.toc_section {
+}
+span.toc_subsection {
+}
+
+@media print {
+
+  html, body {
+    width:      210mm;
+    height:     297mm;
+    color:      #000;
+    background: #fff;
+    font-size:  14pt;
+  }
+  img {
+    margin-bottom: 0.8rem;
+  }
+  div.book, div.chapter, div.section, div.subsection {
+    page-break-after:  avoid;   page-break-inside: avoid;
+  }
+  img {
+    page-break-inside: avoid;
+    page-break-after:  avoid;
+  }
+  blockquote, table, pre {
+    page-break-inside: avoid;
+  }
+  ul, ol, dl  {
+    page-break-before: avoid;
+  }
+}
+
+.close-icon{
+  font-size: 1.5rem; color: var(--red); margin-bottom: 0.2rem;
+}

@@ -50,6 +50,7 @@ Coding guidelines for Racket code in `parsers`:
 29. When a local corpus is available, add a corpus checker script in `tools/` instead of relying only on unit tests.
 30. Corpus checker scripts in `tools/` must skip cleanly when their local `/tmp` corpus directory is unavailable, so package-server tests do not fail when the corpus is absent.
 31. The CSS corpus currently lives at `/private/tmp/lexers-css-corpus`; tooling should treat that as optional local input, not as a package dependency.
+32. If files from a local `/tmp` corpus are promoted into stable regression tests, copy them into a repo-local `testdata/` directory first so the tests survive reboot cleanup.
 
 ## Packages
 
