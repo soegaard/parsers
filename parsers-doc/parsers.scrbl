@@ -133,6 +133,7 @@ for common tooling tasks such as:
 @itemlist[
  @item{iterating rules in source order}
  @item{finding declarations by property}
+ @item{matching exact selector groups or exact raw selector text}
  @item{querying selectors or pseudos}
  @item{collecting derived @litchar|{@media}| and @litchar|{@supports}| information}
  @item{inspecting parser recovery output}]
@@ -1224,6 +1225,45 @@ Recognizes simple block component nodes.}
          list?]{
 Returns a pre-order list of rules and at-rules, recursively flattening nested
 rule-bearing at-rules while skipping comments.}
+
+@defproc[(css-find-rules-by-selector-group [stylesheet css-stylesheet?]
+                                           [selector-group string?])
+         list?]{
+Finds style rules whose selector groups include @racket[selector-group]
+exactly.
+
+The search preserves source order and flattens nested rule-bearing at-rules the
+same way as @racket[css-flatten-rules].}
+
+@defproc[(css-find-rules-by-raw-selector [stylesheet css-stylesheet?]
+                                         [raw-selector string?])
+         list?]{
+Finds style rules whose raw selector text exactly matches
+@racket[raw-selector].
+
+The search preserves source order and uses the same nested-rule flattening as
+@racket[css-flatten-rules].}
+
+@defproc[(css-find-declarations-in-selector-group
+          [stylesheet css-stylesheet?]
+          [selector-group string?]
+          [property-name (or/c string? #f) #f])
+         list?]{
+Finds declarations in rules whose selector groups include
+@racket[selector-group] exactly.
+
+The result preserves source order. When @racket[property-name] is provided, the
+result is filtered case-insensitively by property name.}
+
+@defproc[(css-collect-custom-properties-in-selector-group
+          [stylesheet css-stylesheet?]
+          [selector-group string?])
+         hash?]{
+Collects custom-property declarations from rules whose selector groups include
+@racket[selector-group] exactly.
+
+Declarations are processed in source order, and later declarations override
+earlier ones in the returned hash.}
 
 @defproc[(css-find-declarations [stylesheet css-stylesheet?]
                                 [name string?])

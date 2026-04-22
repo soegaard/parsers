@@ -7,6 +7,10 @@
 ;; Lightweight AST queries for the current CSS parser.
 
 (provide css-flatten-rules
+         css-find-rules-by-selector-group
+         css-find-rules-by-raw-selector
+         css-find-declarations-in-selector-group
+         css-collect-custom-properties-in-selector-group
          css-find-declarations
          css-query-selector
          css-find-rules-by-pseudo
@@ -14,6 +18,7 @@
          css-find-supports-features)
 
 (require racket/list
+         racket/hash
          racket/string
          "css-ast.rkt"
          "css-structure.rkt")
@@ -24,6 +29,96 @@
   (unless (css-stylesheet? stylesheet)
     (raise-argument-error 'css-flatten-rules "css-stylesheet?" stylesheet))
   (append-map flatten-rule-or-comment (css-stylesheet-rules stylesheet)))
+
+;; css-find-rules-by-selector-group : css-stylesheet? string? -> list?
+;;   Find style rules whose selector groups include selector-group exactly.
+(define (css-find-rules-by-selector-group stylesheet selector-group)
+  (unless (css-stylesheet? stylesheet)
+    (raise-argument-error
+     'css-find-rules-by-selector-group
+     "css-stylesheet?"
+     stylesheet))
+  (unless (string? selector-group)
+    (raise-argument-error
+     'css-find-rules-by-selector-group
+     "string?"
+     selector-group))
+  (filter (lambda (rule)
+            (member selector-group
+                    (css-style-rule-selector-groups rule)))
+          (flatten-style-rules stylesheet)))
+
+;; css-find-rules-by-raw-selector : css-stylesheet? string? -> list?
+;;   Find style rules whose raw selector text matches raw-selector exactly.
+(define (css-find-rules-by-raw-selector stylesheet raw-selector)
+  (unless (css-stylesheet? stylesheet)
+    (raise-argument-error
+     'css-find-rules-by-raw-selector
+     "css-stylesheet?"
+     stylesheet))
+  (unless (string? raw-selector)
+    (raise-argument-error
+     'css-find-rules-by-raw-selector
+     "string?"
+     raw-selector))
+  (filter (lambda (rule)
+            (string=? (css-style-rule-raw-selector rule)
+                      raw-selector))
+          (flatten-style-rules stylesheet)))
+
+;; css-find-declarations-in-selector-group : css-stylesheet? string? [string?] -> list?
+;;   Find declarations in matching selector-group rules, optionally by property name.
+(define (css-find-declarations-in-selector-group stylesheet
+                                                 selector-group
+                                                 [property-name #f])
+  (unless (css-stylesheet? stylesheet)
+    (raise-argument-error
+     'css-find-declarations-in-selector-group
+     "css-stylesheet?"
+     stylesheet))
+  (unless (string? selector-group)
+    (raise-argument-error
+     'css-find-declarations-in-selector-group
+     "string?"
+     selector-group))
+  (when (and property-name
+             (not (string? property-name)))
+    (raise-argument-error
+     'css-find-declarations-in-selector-group
+     "(or/c string? #f)"
+     property-name))
+  (append-map (lambda (rule)
+                (filter-declarations-by-name
+                 (filter css-declaration?
+                         (css-style-rule-block rule))
+                 property-name))
+              (css-find-rules-by-selector-group stylesheet selector-group)))
+
+;; css-collect-custom-properties-in-selector-group : css-stylesheet? string? -> hash?
+;;   Collect custom-property declarations from matching selector-group rules.
+(define (css-collect-custom-properties-in-selector-group stylesheet selector-group)
+  (unless (css-stylesheet? stylesheet)
+    (raise-argument-error
+     'css-collect-custom-properties-in-selector-group
+     "css-stylesheet?"
+     stylesheet))
+  (unless (string? selector-group)
+    (raise-argument-error
+     'css-collect-custom-properties-in-selector-group
+     "string?"
+     selector-group))
+  (for/fold ([properties (hash)])
+            ([declaration (in-list
+                           (css-find-declarations-in-selector-group
+                            stylesheet
+                            selector-group))])
+    (cond
+      [(string-prefix? (css-declaration-name declaration) "--")
+       (hash-set properties
+                 (css-declaration-name declaration)
+                 (css-declaration-value declaration))]
+      [else
+       properties])))
 
 ;; css-find-declarations : css-stylesheet? string? -> list?
 ;;   Find declarations whose property matches name case-insensitively.
@@ -83,6 +178,12 @@
              features)]
     [else
      features]))
+
+;; flatten-style-rules : css-stylesheet? -> list?
+;;   Flatten nested rule-bearing at-rules and keep only style rules.
+(define (flatten-style-rules stylesheet)
+  (filter css-style-rule?
+          (css-flatten-rules stylesheet)))
 
 ;; flatten-rule-or-comment : any/c -> list?
 ;;   Flatten one node recursively, skipping comments.
@@ -203,6 +304,18 @@
                 (find-declarations-in-node item name))
               items))
 
+;; filter-declarations-by-name : list? (or/c string? #f) -> list?
+;;   Filter declarations by property name when a filter is provided.
+(define (filter-declarations-by-name declarations property-name)
+  (cond
+    [property-name
+     (filter (lambda (declaration)
+               (string-ci=? (css-declaration-name declaration)
+                            property-name))
+             declarations)]
+    [else
+     declarations]))
+
 (module+ test
   (require rackunit)
 
@@ -232,8 +345,42 @@
      #f))
 
   (check-equal? (length (css-flatten-rules stylesheet)) 5)
+  (check-equal? (length (css-find-rules-by-selector-group stylesheet ".b")) 1)
+  (check-equal? (length (css-find-rules-by-raw-selector stylesheet ".a, .b")) 1)
+  (check-equal?
+   (map css-declaration-name
+        (css-find-declarations-in-selector-group stylesheet ".b"))
+   '("color"))
+  (check-equal?
+   (map css-declaration-name
+        (css-find-declarations-in-selector-group stylesheet ".b" "CoLoR"))
+   '("color"))
   (check-equal? (length (css-find-declarations stylesheet "color")) 2)
   (check-equal? (length (css-query-selector stylesheet ".b")) 1)
   (check-equal? (length (css-find-rules-by-pseudo stylesheet "hover")) 1)
   (check-equal? (length (css-find-media-queries stylesheet)) 1)
-  (check-equal? (length (css-find-supports-features stylesheet "display")) 1))
+  (check-equal? (length (css-find-supports-features stylesheet "display")) 1)
+  (define custom-stylesheet
+    (css-stylesheet
+     (list (css-style-rule '(".card")
+                           (list (css-declaration "--gap" "1rem" #f #f))
+                           ".card"
+                           #f)
+           (css-at-rule "@media"
+                        "screen"
+                        (list (css-style-rule '(".card")
+                                              (list (css-declaration "--gap" "2rem" #f #f)
+                                                    (css-declaration "--accent" "blue" #f #f))
+                                              ".card"
+                                              #f))
+                        #f))
+     #f
+     #f))
+  (check-equal?
+   (hash-ref (css-collect-custom-properties-in-selector-group custom-stylesheet ".card")
+             "--gap")
+   "2rem")
+  (check-equal?
+   (hash-ref (css-collect-custom-properties-in-selector-group custom-stylesheet ".card")
+             "--accent")
+   "blue"))

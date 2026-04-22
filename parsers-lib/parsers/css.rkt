@@ -67,6 +67,10 @@
          css-remove-declarations-in-supports-feature
          css-remove-declarations-in-supports-feature/preserve-source
          css-flatten-rules
+         css-find-rules-by-selector-group
+         css-find-rules-by-raw-selector
+         css-find-declarations-in-selector-group
+         css-collect-custom-properties-in-selector-group
          css-find-declarations
          css-query-selector
          css-find-rules-by-pseudo
@@ -978,6 +982,38 @@
     #:preserve-source? #t)
    "@supports (display: grid) {\n  .layout {\n    \n    gap: 1rem;\n  }\n}")
   (check-equal? (length (css-flatten-rules media-stylesheet)) 2)
+  (define selector-query-stylesheet
+    (parse-css ".a, .b { color: red; }\n@media screen { .b { color: blue; --gap: 1rem; } }\n.c { color: green; }\n@media screen { .b { COLOR: navy; --gap: 2rem; --accent: gold; } }"))
+  (check-equal?
+   (map css-style-rule-raw-selector
+        (css-find-rules-by-selector-group selector-query-stylesheet ".b"))
+   '(".a, .b" ".b" ".b"))
+  (check-equal?
+   (map css-style-rule-raw-selector
+        (css-find-rules-by-raw-selector selector-query-stylesheet ".a, .b"))
+   '(".a, .b"))
+  (check-equal?
+   (map css-declaration-value
+        (css-find-declarations-in-selector-group selector-query-stylesheet ".b"))
+   '("red" "blue" "1rem" "navy" "2rem" "gold"))
+  (check-equal?
+   (map css-declaration-value
+        (css-find-declarations-in-selector-group selector-query-stylesheet
+                                                 ".b"
+                                                 "color"))
+   '("red" "blue" "navy"))
+  (check-equal?
+   (hash-ref (css-collect-custom-properties-in-selector-group
+              selector-query-stylesheet
+              ".b")
+             "--gap")
+   "2rem")
+  (check-equal?
+   (hash-ref (css-collect-custom-properties-in-selector-group
+              selector-query-stylesheet
+              ".b")
+             "--accent")
+   "gold")
   (check-equal? (length (css-find-declarations media-stylesheet "color")) 1)
   (check-equal? (length (css-query-selector grouped-stylesheet ".b")) 1)
   (check-equal? (length (css-find-rules-by-pseudo (parse-css "a:not(.x, #y) > span:nth-child(2n+1) { color: red; }") "not")) 1)
