@@ -332,11 +332,22 @@
                 [next-groups groups])
                ([selector-group (in-list (css-style-rule-selector-groups node))])
        (cond
-         [(hash-has-key? next-seen selector-group)
+         [(or (hash-has-key? next-seen selector-group)
+              (not (selector-group-sample-worthy? selector-group)))
           (values next-seen next-groups)]
          [else
           (values (hash-set next-seen selector-group #t)
                   (cons selector-group next-groups))])))))
+
+;; selector-group-sample-worthy? : string? -> boolean?
+;;   Keep obviously malformed recovery artifacts out of corpus compute samples.
+(define (selector-group-sample-worthy? selector-group)
+  (define trimmed
+    (string-trim selector-group))
+  (and (not (string=? trimmed ""))
+       (not (member trimmed '("}" "{" ")" "(" "]" "[")))
+       (not (regexp-match? #px"[{}]" trimmed))
+       (regexp-match? #px"[A-Za-z0-9_.:#*%-]" trimmed)))
 
 ;; find-css-files : path-string? -> list?
 ;;   Find CSS files below a directory.
@@ -396,6 +407,10 @@
   (check-equal?
    (unique-selector-groups stylesheet)
    '(".a" ".b" ".c"))
+  (check-false
+   (selector-group-sample-worthy? "}"))
+  (check-true
+   (selector-group-sample-worthy? ".a"))
   (check-equal?
    (parse-positive-integer 'check-css-corpus-compute "--max-selector-groups-per-file" "3")
    3)
