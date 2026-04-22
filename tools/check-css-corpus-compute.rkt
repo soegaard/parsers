@@ -97,6 +97,7 @@
   (printf "Checking computed styles for ~a CSS files in ~a~n"
           (length paths)
           corpus-dir)
+  (flush-output)
   (define parse-failures '())
   (define compute-failures '())
   (define checked-selector-groups 0)
@@ -117,12 +118,14 @@
           checked-selector-groups
           (length parse-failures)
           (length compute-failures))
+  (flush-output)
   (for ([failure (in-list (reverse parse-failures))])
     (match-define (list path message) failure)
     (printf "PARSE ~a: ~a~n" path message))
   (for ([failure (in-list (reverse compute-failures))])
     (match-define (list path selector-group message) failure)
     (printf "COMPUTE ~a ~s: ~a~n" path selector-group message))
+  (flush-output)
   (when (or (pair? parse-failures)
             (pair? compute-failures))
     (exit 1)))
