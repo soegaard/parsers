@@ -36,7 +36,7 @@
 (struct css-compute-property-result (name candidates winner)
   #:transparent)
 
-(struct css-compute-candidate (name value important? specificity source-order declaration matched-rule)
+(struct css-compute-candidate (name value important? specificity source-order declaration matched-rule source-name)
   #:transparent)
 
 (struct css-compute-var-resolution (name raw-value resolved-value references cycle?)
@@ -105,7 +105,7 @@
         (resolve-style-property-results property-results custom-hash defaults)
         (values (property-results->hash property-results)
                 '())))
-  (values style-hash
+  (values (augment-style-hash-with-derived-shorthands style-hash)
           custom-hash
           (css-compute-style-trace selector-group
                                    matched-rules
@@ -189,18 +189,256 @@
             ([item (in-list (css-style-rule-block rule))])
     (cond
       [(css-declaration? item)
+       (define declaration-candidates
+         (declaration->compute-candidates item
+                                          matched-rule
+                                          next-order))
        (values (add1 next-order)
-               (cons (css-compute-candidate (normalized-property-name
-                                             (css-declaration-name item))
-                                            (declaration-computed-value item)
-                                            (css-declaration-important? item)
-                                            (css-compute-matched-rule-specificity matched-rule)
-                                            next-order
-                                            item
-                                            matched-rule)
-                     next-candidates))]
+               (append (reverse declaration-candidates)
+                       next-candidates))]
       [else
        (values next-order next-candidates)])))
+
+;; declaration->compute-candidates : css-declaration? css-compute-matched-rule? exact-nonnegative-integer? -> list?
+;;   Produce authored and shorthand-expanded candidates for one declaration.
+(define (declaration->compute-candidates declaration matched-rule source-order)
+  (define source-name
+    (normalized-property-name (css-declaration-name declaration)))
+  (define raw-value
+    (declaration-computed-value declaration))
+  (define base-candidate
+    (make-compute-candidate source-name
+                            raw-value
+                            source-name
+                            declaration
+                            matched-rule
+                            source-order))
+  (append (list base-candidate)
+          (expand-shorthand-candidates declaration
+                                       matched-rule
+                                       source-order
+                                       source-name)))
+
+;; make-compute-candidate : string? string? string? css-declaration? css-compute-matched-rule? exact-nonnegative-integer? -> css-compute-candidate?
+;;   Build one compute candidate, preserving the authored source property.
+(define (make-compute-candidate name
+                                value
+                                source-name
+                                declaration
+                                matched-rule
+                                source-order)
+  (css-compute-candidate name
+                         value
+                         (css-declaration-important? declaration)
+                         (css-compute-matched-rule-specificity matched-rule)
+                         source-order
+                         declaration
+                         matched-rule
+                         source-name))
+
+;; expand-shorthand-candidates : css-declaration? css-compute-matched-rule? exact-nonnegative-integer? string? -> list?
+;;   Expand the small supported shorthand set into synthetic longhand candidates.
+(define (expand-shorthand-candidates declaration
+                                     matched-rule
+                                     source-order
+                                     source-name)
+  (case (string->symbol source-name)
+    [(border)
+     (expand-border-shorthand-candidates declaration
+                                         matched-rule
+                                         source-order
+                                         source-name
+                                         #f)]
+    [(border-top border-right border-bottom border-left)
+     (expand-border-shorthand-candidates declaration
+                                         matched-rule
+                                         source-order
+                                         source-name
+                                         (substring source-name
+                                                    (string-length "border-")
+                                                    (string-length source-name)))]
+    [(padding margin)
+     (expand-box-shorthand-candidates declaration
+                                      matched-rule
+                                      source-order
+                                      source-name)]
+    [else
+     '()]))
+
+;; -----------------------------------------------------------------------------
+;; Shorthand expansion constants
+
+(define border-sides
+  '("top" "right" "bottom" "left"))
+
+(define border-style-keywords
+  '("none"
+    "hidden"
+    "dotted"
+    "dashed"
+    "solid"
+    "double"
+    "groove"
+    "ridge"
+    "inset"
+    "outset"))
+
+(define border-width-keywords
+  '("thin" "medium" "thick"))
+
+;; expand-border-shorthand-candidates : css-declaration? css-compute-matched-rule? exact-nonnegative-integer? string? (or/c string? #f) -> list?
+;;   Expand border and side-specific border shorthands into longhand candidates.
+(define (expand-border-shorthand-candidates declaration
+                                            matched-rule
+                                            source-order
+                                            source-name
+                                            side-name)
+  (define components
+    (declaration-computed-components declaration))
+  (define-values (width style color)
+    (parse-border-shorthand-components components))
+  (cond
+    [(and (not width) (not style) (not color))
+     '()]
+    [else
+     (define target-sides
+       (if side-name
+           (list side-name)
+           border-sides))
+     (append-map (lambda (side)
+                   (append (make-border-side-candidates declaration
+                                                        matched-rule
+                                                        source-order
+                                                        source-name
+                                                        side
+                                                        "width"
+                                                        width)
+                           (make-border-side-candidates declaration
+                                                        matched-rule
+                                                        source-order
+                                                        source-name
+                                                        side
+                                                        "style"
+                                                        style)
+                           (make-border-side-candidates declaration
+                                                        matched-rule
+                                                        source-order
+                                                        source-name
+                                                        side
+                                                        "color"
+                                                        color)))
+                 target-sides)]))
+
+;; make-border-side-candidates : css-declaration? css-compute-matched-rule? exact-nonnegative-integer? string? string? string? (or/c string? #f) -> list?
+;;   Build zero or one side-specific border longhand candidate.
+(define (make-border-side-candidates declaration
+                                     matched-rule
+                                     source-order
+                                     source-name
+                                     side
+                                     suffix
+                                     value)
+  (cond
+    [value
+     (list (make-compute-candidate (string-append "border-" side "-" suffix)
+                                   value
+                                   source-name
+                                   declaration
+                                   matched-rule
+                                   source-order))]
+    [else
+     '()]))
+
+;; parse-border-shorthand-components : list? -> values
+;;   Parse a reduced border shorthand into width, style, and color texts.
+(define (parse-border-shorthand-components components)
+  (let loop ([remaining components]
+             [width #f]
+             [style #f]
+             [color #f])
+    (cond
+      [(null? remaining)
+       (values width style color)]
+      [else
+       (define component
+         (car remaining))
+       (cond
+         [(border-width-component? component)
+          (cond
+            [width
+             (values #f #f #f)]
+            [else
+             (loop (cdr remaining)
+                   (component-value-text component)
+                   style
+                   color)])]
+         [(border-style-component? component)
+          (cond
+            [style
+             (values #f #f #f)]
+            [else
+             (loop (cdr remaining)
+                   width
+                   (component-value-text component)
+                   color)])]
+         [else
+          (cond
+            [color
+             (values #f #f #f)]
+            [else
+             (loop (cdr remaining)
+                   width
+                   style
+                   (component-value-text component))])])])))
+
+;; expand-box-shorthand-candidates : css-declaration? css-compute-matched-rule? exact-nonnegative-integer? string? -> list?
+;;   Expand padding and margin shorthand declarations into four side longhands.
+(define (expand-box-shorthand-candidates declaration
+                                         matched-rule
+                                         source-order
+                                         source-name)
+  (define component-texts
+    (map component-value-text
+         (declaration-computed-components declaration)))
+  (define expanded-values
+    (expand-box-shorthand-values component-texts))
+  (cond
+    [(not expanded-values)
+     '()]
+    [else
+     (append-map (lambda (side value)
+                   (list (make-compute-candidate (string-append source-name "-" side)
+                                                 value
+                                                 source-name
+                                                 declaration
+                                                 matched-rule
+                                                 source-order)))
+                 border-sides
+                 expanded-values)]))
+
+;; expand-box-shorthand-values : list? -> (or/c list? #f)
+;;   Expand 1/2/3/4-value margin/padding forms to top/right/bottom/left values.
+(define (expand-box-shorthand-values component-texts)
+  (case (length component-texts)
+    [(1)
+     (list (car component-texts)
+           (car component-texts)
+           (car component-texts)
+           (car component-texts))]
+    [(2)
+     (list (first component-texts)
+           (second component-texts)
+           (first component-texts)
+           (second component-texts))]
+    [(3)
+     (list (first component-texts)
+           (second component-texts)
+           (third component-texts)
+           (second component-texts))]
+    [(4)
+     component-texts]
+    [else
+     #f]))
 
 ;; pick-winning-candidates : list? -> list?
 ;;   Group candidates by property name and keep the winning candidate for each.
@@ -415,6 +653,56 @@
             (css-compute-candidate-value
              (css-compute-property-result-winner result)))))
 
+;; augment-style-hash-with-derived-shorthands : hash? -> hash?
+;;   Add reduced aggregate border properties when all four sides share one value.
+(define (augment-style-hash-with-derived-shorthands style-hash)
+  (define with-border-width
+    (maybe-add-shared-border-aggregate style-hash
+                                       "border-width"
+                                       "border-top-width"
+                                       "border-right-width"
+                                       "border-bottom-width"
+                                       "border-left-width"))
+  (define with-border-style
+    (maybe-add-shared-border-aggregate with-border-width
+                                       "border-style"
+                                       "border-top-style"
+                                       "border-right-style"
+                                       "border-bottom-style"
+                                       "border-left-style"))
+  (maybe-add-shared-border-aggregate with-border-style
+                                     "border-color"
+                                     "border-top-color"
+                                     "border-right-color"
+                                     "border-bottom-color"
+                                     "border-left-color"))
+
+;; maybe-add-shared-border-aggregate : hash? string? string? string? string? string? -> hash?
+;;   Add one aggregate border property when all side values are present and equal.
+(define (maybe-add-shared-border-aggregate style-hash aggregate-name top-name right-name bottom-name left-name)
+  (cond
+    [(and (hash-has-key? style-hash top-name)
+          (hash-has-key? style-hash right-name)
+          (hash-has-key? style-hash bottom-name)
+          (hash-has-key? style-hash left-name))
+     (define top-value
+       (hash-ref style-hash top-name))
+     (define right-value
+       (hash-ref style-hash right-name))
+     (define bottom-value
+       (hash-ref style-hash bottom-name))
+     (define left-value
+       (hash-ref style-hash left-name))
+     (cond
+       [(and (string=? top-value right-value)
+             (string=? top-value bottom-value)
+             (string=? top-value left-value))
+        (hash-set style-hash aggregate-name top-value)]
+       [else
+        style-hash])]
+    [else
+     style-hash]))
+
 ;; custom-property-candidate? : css-compute-candidate? -> boolean?
 ;;   Determine whether a candidate is a custom property.
 (define (custom-property-candidate? candidate)
@@ -439,6 +727,65 @@
    (regexp-replace #px"(?i:\\s*!important\\s*$)"
                    (css-declaration-value declaration)
                    "")))
+
+;; declaration-computed-components : css-declaration? -> list?
+;;   Parse declaration components after trimming a trailing !important marker.
+(define (declaration-computed-components declaration)
+  (css-declaration-component-values
+   (css-declaration (css-declaration-name declaration)
+                    (declaration-computed-value declaration)
+                    #f
+                    (css-declaration-span declaration))))
+
+;; component-value-text : any/c -> string?
+;;   Extract preserved source text from one component value node.
+(define (component-value-text component)
+  (cond
+    [(css-component-token? component)
+     (css-component-token-text component)]
+    [(css-component-an-plus-b? component)
+     (css-component-an-plus-b-text component)]
+    [(css-component-number? component)
+     (css-component-number-text component)]
+    [(css-component-percentage? component)
+     (css-component-percentage-text component)]
+    [(css-component-dimension? component)
+     (css-component-dimension-text component)]
+    [(css-component-string? component)
+     (css-component-string-text component)]
+    [(css-component-hash? component)
+     (css-component-hash-text component)]
+    [(css-component-url? component)
+     (css-component-url-text component)]
+    [(css-component-function? component)
+     (css-component-function-text component)]
+    [(css-component-block? component)
+     (css-component-block-text component)]
+    [else
+     ""]))
+
+;; border-width-component? : any/c -> boolean?
+;;   Determine whether one component is a reduced border-width value.
+(define (border-width-component? component)
+  (cond
+    [(css-component-dimension? component)
+     #t]
+    [(css-component-percentage? component)
+     #t]
+    [(css-component-number? component)
+     (zero? (css-component-number-value component))]
+    [(css-component-token? component)
+     (member (string-downcase (css-component-token-text component))
+             border-width-keywords)]
+    [else
+     #f]))
+
+;; border-style-component? : any/c -> boolean?
+;;   Determine whether one component is a reduced border-style value.
+(define (border-style-component? component)
+  (and (css-component-token? component)
+       (member (string-downcase (css-component-token-text component))
+               border-style-keywords)))
 
 ;; selector-group-specificity : css-selector? -> list?
 ;;   Compute specificity as (list ids classes types).
@@ -727,6 +1074,10 @@
   (check-equal?
    (css-compute-style-for-selector-group computed-stylesheet ".chip")
    (hash "margin" "1rem"
+         "margin-top" "1rem"
+         "margin-right" "1rem"
+         "margin-bottom" "1rem"
+         "margin-left" "1rem"
          "opacity" "0.7"))
   (check-equal?
    (css-compute-custom-properties-for-selector-group computed-stylesheet ".chip")
@@ -749,4 +1100,147 @@
    (ormap (lambda (resolution)
             (and (string=? (css-compute-var-resolution-name resolution) "--a")
                  (css-compute-var-resolution-cycle? resolution)))
-          (css-compute-style-trace-var-resolutions trace))))
+          (css-compute-style-trace-var-resolutions trace)))
+
+  (define shorthand-stylesheet
+    (parse-css* (string-append
+                 ".x { border: 0 solid #e0e1e2; }\n"
+                 ".x { border-left-width: 2px; }\n"
+                 ".bottom { border-bottom: 3px dashed red; }\n"
+                 ".important { border: 0 solid red !important; }\n"
+                 ".important { border-left-width: 2px; }\n"
+                 ".specific { border: 1px solid blue; }\n"
+                 ".specific { border-left-width: 4px; }\n"
+                 ".pad1 { padding: 1rem; }\n"
+                 ".pad2 { padding: 1rem 2rem; }\n"
+                 ".pad3 { padding: 1rem 2rem 3rem; }\n"
+                 ".pad4 { padding: 1rem 2rem 3rem 4rem; }\n"
+                 ".mar1 { margin: 5px; }\n"
+                 ".mar2 { margin: 5px 10px; }\n"
+                 ".mar3 { margin: 5px 10px 15px; }\n"
+                 ".mar4 { margin: 5px 10px 15px 20px; }\n"
+                 ".form-control { border: 0 solid #e0e1e2; }\n"
+                 "@media screen { .media-box { border: 1px solid green; } }\n")))
+
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".x")
+   (hash "border"             "0 solid #e0e1e2"
+         "border-top-width"   "0"
+         "border-right-width" "0"
+         "border-bottom-width" "0"
+         "border-left-width"  "2px"
+         "border-top-style"   "solid"
+         "border-right-style" "solid"
+         "border-bottom-style" "solid"
+         "border-left-style"  "solid"
+         "border-top-color"   "#e0e1e2"
+         "border-right-color" "#e0e1e2"
+         "border-bottom-color" "#e0e1e2"
+         "border-left-color"  "#e0e1e2"
+         "border-style"       "solid"
+         "border-color"       "#e0e1e2"))
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".bottom")
+   (hash "border-bottom"       "3px dashed red"
+         "border-bottom-width" "3px"
+         "border-bottom-style" "dashed"
+         "border-bottom-color" "red"))
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".important")
+   (hash "border"              "0 solid red"
+         "border-top-width"    "0"
+         "border-right-width"  "0"
+         "border-bottom-width" "0"
+         "border-left-width"   "0"
+         "border-top-style"    "solid"
+         "border-right-style"  "solid"
+         "border-bottom-style" "solid"
+         "border-left-style"   "solid"
+         "border-top-color"    "red"
+         "border-right-color"  "red"
+         "border-bottom-color" "red"
+         "border-left-color"   "red"
+         "border-width"        "0"
+         "border-style"        "solid"
+         "border-color"        "red"))
+  (check-equal?
+   (hash-ref (css-compute-style-for-selector-group shorthand-stylesheet ".specific")
+             "border-left-width")
+   "4px")
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".pad1")
+   (hash "padding"        "1rem"
+         "padding-top"    "1rem"
+         "padding-right"  "1rem"
+         "padding-bottom" "1rem"
+         "padding-left"   "1rem"))
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".pad2")
+   (hash "padding"        "1rem 2rem"
+         "padding-top"    "1rem"
+         "padding-right"  "2rem"
+         "padding-bottom" "1rem"
+         "padding-left"   "2rem"))
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".pad3")
+   (hash "padding"        "1rem 2rem 3rem"
+         "padding-top"    "1rem"
+         "padding-right"  "2rem"
+         "padding-bottom" "3rem"
+         "padding-left"   "2rem"))
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".pad4")
+   (hash "padding"        "1rem 2rem 3rem 4rem"
+         "padding-top"    "1rem"
+         "padding-right"  "2rem"
+         "padding-bottom" "3rem"
+         "padding-left"   "4rem"))
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".mar1")
+   (hash "margin"        "5px"
+         "margin-top"    "5px"
+         "margin-right"  "5px"
+         "margin-bottom" "5px"
+         "margin-left"   "5px"))
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".mar2")
+   (hash "margin"        "5px 10px"
+         "margin-top"    "5px"
+         "margin-right"  "10px"
+         "margin-bottom" "5px"
+         "margin-left"   "10px"))
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".mar3")
+   (hash "margin"        "5px 10px 15px"
+         "margin-top"    "5px"
+         "margin-right"  "10px"
+         "margin-bottom" "15px"
+         "margin-left"   "10px"))
+  (check-equal?
+   (css-compute-style-for-selector-group shorthand-stylesheet ".mar4")
+   (hash "margin"        "5px 10px 15px 20px"
+         "margin-top"    "5px"
+         "margin-right"  "10px"
+         "margin-bottom" "15px"
+         "margin-left"   "20px"))
+  (check-equal?
+   (hash-ref (css-compute-style-for-selector-group shorthand-stylesheet ".form-control")
+             "border-width")
+   "0")
+  (check-equal?
+   (hash-ref (css-compute-style-for-selector-group shorthand-stylesheet ".media-box")
+             "border-top-width")
+   "1px")
+  (define-values (shorthand-computed shorthand-trace)
+    (css-compute-style-for-selector-group shorthand-stylesheet
+                                          ".x"
+                                          #:trace? #t))
+  (check-equal? (hash-ref shorthand-computed "border-left-width") "2px")
+  (check-true
+   (ormap (lambda (result)
+            (and (string=? (css-compute-property-result-name result)
+                           "border-top-width")
+                 (string=? (css-compute-candidate-source-name
+                            (css-compute-property-result-winner result))
+                           "border")))
+          (css-compute-style-trace-property-results shorthand-trace))))

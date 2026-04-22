@@ -98,6 +98,7 @@
          css-compute-candidate-source-order
          css-compute-candidate-declaration
          css-compute-candidate-matched-rule
+         css-compute-candidate-source-name
          css-compute-var-resolution?
          css-compute-var-resolution-name
          css-compute-var-resolution-raw-value
@@ -1085,6 +1086,8 @@
                 "@media screen { .btn { background: var(--accent); --accent: gold; } }\n"
                 ".btn { border-color: var(--border, black); }\n"
                 ".btn { --a: var(--b); --b: var(--a); }\n"
+                ".form-control { border: 0 solid #e0e1e2; }\n"
+                ".form-control { border-left-width: 2px; }\n"
                 ".chip { margin: 0; margin: 1rem; }\n"
                 ".chip { opacity: 0.5 !important; opacity: 0.7 !important; }\n")))
   (check-equal?
@@ -1110,7 +1113,21 @@
   (check-equal?
    (css-compute-style-for-selector-group computed-style-stylesheet ".chip")
    (hash "margin" "1rem"
+         "margin-top" "1rem"
+         "margin-right" "1rem"
+         "margin-bottom" "1rem"
+         "margin-left" "1rem"
          "opacity" "0.7"))
+  (check-equal?
+   (hash-ref (css-compute-style-for-selector-group computed-style-stylesheet
+                                                   ".form-control")
+             "border-left-width")
+   "2px")
+  (check-equal?
+   (hash-ref (css-compute-style-for-selector-group computed-style-stylesheet
+                                                   ".form-control")
+             "border-top-width")
+   "0")
   (define-values (computed-style computed-trace)
     (css-compute-style-for-selector-group computed-style-stylesheet
                                           ".btn"
@@ -1126,6 +1143,18 @@
                  (css-compute-candidate?
                   (css-compute-property-result-winner result))))
           (css-compute-style-trace-property-results computed-trace)))
+  (define-values (_border-style border-trace)
+    (css-compute-style-for-selector-group computed-style-stylesheet
+                                          ".form-control"
+                                          #:trace? #t))
+  (check-true
+   (ormap (lambda (result)
+            (and (string=? (css-compute-property-result-name result)
+                           "border-top-width")
+                 (string=? (css-compute-candidate-source-name
+                            (css-compute-property-result-winner result))
+                           "border")))
+          (css-compute-style-trace-property-results border-trace)))
   (check-equal? (length (css-find-declarations media-stylesheet "color")) 1)
   (check-equal? (length (css-query-selector grouped-stylesheet ".b")) 1)
   (check-equal? (length (css-find-rules-by-pseudo (parse-css "a:not(.x, #y) > span:nth-child(2n+1) { color: red; }") "not")) 1)

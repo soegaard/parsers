@@ -146,6 +146,9 @@ It is deliberately narrow:
 @itemlist[
  @item{exact selector-group matching only}
  @item{cascade winner selection by @tt{!important}, specificity, and source order}
+ @item{limited shorthand expansion for @tt{border}, @tt{border-top},
+       @tt{border-right}, @tt{border-bottom}, @tt{border-left},
+       @tt{padding}, and @tt{margin}}
  @item{optional @tt{var(...)} resolution against computed custom properties and
        caller-supplied defaults}
  @item{optional trace output so downstream tools can inspect why a value won}]
@@ -1346,6 +1349,17 @@ included in this result; use
 @racket[css-compute-custom-properties-for-selector-group] for the custom
 property environment.
 
+This reduced computed-style layer also expands a small explicit shorthand set:
+@tt{border}, the four side-specific @tt{border-*} shorthands, @tt{padding}, and
+@tt{margin}. Shorthand declarations generate synthetic longhand candidates that
+participate in the same winner-selection pipeline as authored longhands, so a
+later authored longhand can still override one side from an earlier shorthand.
+
+When all four border side values agree, the returned hash also exposes the
+shared aggregate property for @tt{border-width}, @tt{border-style}, or
+@tt{border-color}. Otherwise those aggregate keys are omitted instead of being
+lossily reconstructed.
+
 When @racket[resolve-vars?] is true, @tt{var(...)} references are resolved
 against computed custom properties for the same selector-group target and then
 against @racket[defaults]. Unresolved references are left intact.
@@ -1391,6 +1405,14 @@ style rule.}
          list?]{
 Returns per-property winner-selection records for standard properties. Each
 result includes the considered candidates and the winning candidate.}
+
+@defproc[(css-compute-candidate-source-name
+          [candidate css-compute-candidate?])
+         string?]{
+Returns the authored property name that produced a candidate.
+
+If this differs from @racket[(css-compute-candidate-name candidate)], then the
+candidate came from shorthand expansion rather than from an authored longhand.}
 
 @defproc[(css-compute-style-trace-custom-property-results
           [trace css-compute-style-trace?])
