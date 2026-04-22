@@ -1279,6 +1279,18 @@ Collects custom-property declarations from rules whose selector groups include
 Declarations are processed in source order, and later declarations override
 earlier ones in the returned hash.}
 
+@defproc[(css-collect-custom-properties-in-selector-groups
+          [stylesheet css-stylesheet?]
+          [selector-groups (listof string?)])
+         hash?]{
+Collects custom-property declarations from rules whose selector groups include
+any string from @racket[selector-groups] exactly.
+
+Declarations are processed in source order, and later declarations override
+earlier ones in the returned hash. Nested rule-bearing at-rules are flattened
+the same way as @racket[css-flatten-rules], and each matching rule is processed
+at most once even if it matches more than one requested selector group.}
+
 @defproc[(css-find-declarations [stylesheet css-stylesheet?]
                                 [name string?])
          list?]{

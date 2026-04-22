@@ -72,6 +72,7 @@
          css-find-declarations-in-selector-group
          css-find-declarations-in-selector-groups
          css-collect-custom-properties-in-selector-group
+         css-collect-custom-properties-in-selector-groups
          css-find-declarations
          css-query-selector
          css-find-rules-by-pseudo
@@ -1026,6 +1027,24 @@
               ".b")
              "--accent")
    "gold")
+  (check-equal?
+   (hash-ref (css-collect-custom-properties-in-selector-groups
+              selector-query-stylesheet
+              '(".a" ".b"))
+             "--gap")
+   "2rem")
+  (check-equal?
+   (hash-ref (css-collect-custom-properties-in-selector-groups
+              selector-query-stylesheet
+              '(".a" ".b"))
+             "--accent")
+   "gold")
+  (check-equal?
+   (hash-count
+    (css-collect-custom-properties-in-selector-groups
+     selector-query-stylesheet
+     '(".a" ".b")))
+   2)
   (check-equal? (length (css-find-declarations media-stylesheet "color")) 1)
   (check-equal? (length (css-query-selector grouped-stylesheet ".b")) 1)
   (check-equal? (length (css-find-rules-by-pseudo (parse-css "a:not(.x, #y) > span:nth-child(2n+1) { color: red; }") "not")) 1)

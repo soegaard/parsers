@@ -12,6 +12,7 @@
          css-find-declarations-in-selector-group
          css-find-declarations-in-selector-groups
          css-collect-custom-properties-in-selector-group
+         css-collect-custom-properties-in-selector-groups
          css-find-declarations
          css-query-selector
          css-find-rules-by-pseudo
@@ -131,11 +132,28 @@
      'css-collect-custom-properties-in-selector-group
      "string?"
      selector-group))
+  (css-collect-custom-properties-in-selector-groups stylesheet
+                                                    (list selector-group)))
+
+;; css-collect-custom-properties-in-selector-groups : css-stylesheet? (listof string?) -> hash?
+;;   Collect custom-property declarations from rules matching any selector group exactly.
+(define (css-collect-custom-properties-in-selector-groups stylesheet selector-groups)
+  (unless (css-stylesheet? stylesheet)
+    (raise-argument-error
+     'css-collect-custom-properties-in-selector-groups
+     "css-stylesheet?"
+     stylesheet))
+  (unless (and (list? selector-groups)
+               (andmap string? selector-groups))
+    (raise-argument-error
+     'css-collect-custom-properties-in-selector-groups
+     "(listof string?)"
+     selector-groups))
   (for/fold ([properties (hash)])
             ([declaration (in-list
-                           (css-find-declarations-in-selector-group
+                           (css-find-declarations-in-selector-groups
                             stylesheet
-                            selector-group))])
+                            selector-groups))])
     (cond
       [(string-prefix? (css-declaration-name declaration) "--")
        (hash-set properties
@@ -430,6 +448,45 @@
    (hash-ref (css-collect-custom-properties-in-selector-group custom-stylesheet ".card")
              "--accent")
    "blue")
+  (define multi-custom-stylesheet
+    (css-stylesheet
+     (list (css-style-rule '(".a" ".b")
+                           (list (css-declaration "--gap" "1rem" #f #f)
+                                 (css-declaration "color" "red" #f #f))
+                           ".a, .b"
+                           #f)
+           (css-at-rule "@media"
+                        "screen"
+                        (list (css-style-rule '(".c")
+                                              (list (css-declaration "--gap" "2rem" #f #f)
+                                                    (css-declaration "--accent" "blue" #f #f))
+                                              ".c"
+                                              #f))
+                        #f)
+           (css-style-rule '(".b" ".c")
+                           (list (css-declaration "--gap" "3rem" #f #f))
+                           ".b, .c"
+                           #f))
+     #f
+     #f))
+  (check-equal?
+   (hash-ref (css-collect-custom-properties-in-selector-groups
+              multi-custom-stylesheet
+              '(".a" ".c"))
+             "--gap")
+   "3rem")
+  (check-equal?
+   (hash-ref (css-collect-custom-properties-in-selector-groups
+              multi-custom-stylesheet
+              '(".a" ".c"))
+             "--accent")
+   "blue")
+  (check-equal?
+   (hash-count
+    (css-collect-custom-properties-in-selector-groups
+     multi-custom-stylesheet
+     '(".a" ".b")))
+   1)
   (define multi-selector-stylesheet
     (css-stylesheet
      (list (css-style-rule '(".a" ".b")
