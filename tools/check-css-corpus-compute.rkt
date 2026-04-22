@@ -28,15 +28,32 @@
 (define default-max-selector-groups-per-file
   8)
 
+;; default-max-files : exact-positive-integer?
+;;   Default number of corpus files to check in one run.
+(define default-max-files
+  10)
+
 ;; main : -> void?
 ;;   Run the computed-style corpus checker.
 (define (main)
   (define max-selector-groups-per-file
     default-max-selector-groups-per-file)
+  (define max-files
+    default-max-files)
+  (define memory-limit-mb
+    #f)
   (define corpus-dir
     (command-line
      #:program "check-css-corpus-compute"
      #:once-each
+     [("--max-files")
+      count
+      "Check at most this many CSS files in one run."
+      (set! max-files
+            (parse-positive-integer
+             'check-css-corpus-compute
+             "--max-files"
+             count))]
      [("--max-selector-groups-per-file")
       count
       "Sample at most this many selector groups per file."
@@ -45,21 +62,38 @@
              'check-css-corpus-compute
              "--max-selector-groups-per-file"
              count))]
+     [("--memory-limit-mb")
+      count
+      "Limit this Racket process to approximately this many megabytes."
+      (set! memory-limit-mb
+            (parse-positive-integer
+             'check-css-corpus-compute
+             "--memory-limit-mb"
+             count))]
      #:args ([dir default-corpus-dir])
      dir))
+  (when memory-limit-mb
+    (custodian-limit-memory (current-custodian)
+                            (* memory-limit-mb 1024 1024)))
   (cond
     [(not (directory-exists? corpus-dir))
      (printf "CSS corpus not found at ~a; skipping.~n" corpus-dir)]
     [else
-     (check-corpus-compute corpus-dir max-selector-groups-per-file)]))
+     (check-corpus-compute corpus-dir
+                           max-files
+                           max-selector-groups-per-file)]))
 
-;; check-corpus-compute : path-string? exact-positive-integer? -> void?
+;; check-corpus-compute : path-string? exact-positive-integer? exact-positive-integer? -> void?
 ;;   Check computed-style invariants for sampled selector groups in the corpus.
-(define (check-corpus-compute corpus-dir max-selector-groups-per-file)
-  (define paths
+(define (check-corpus-compute corpus-dir max-files max-selector-groups-per-file)
+  (define all-paths
     (sort (find-css-files corpus-dir)
           string<?
           #:key path->string))
+  (define paths
+    (take all-paths
+          (min max-files
+               (length all-paths))))
   (printf "Checking computed styles for ~a CSS files in ~a~n"
           (length paths)
           corpus-dir)
