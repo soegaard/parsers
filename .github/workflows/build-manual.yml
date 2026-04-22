@@ -1,0 +1,70 @@
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "parsers-doc/**"
+      - "parsers-lib/**"
+      - "info.rkt"
+      - ".github/workflows/build-manual.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-manual:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout parsers
+        uses: actions/checkout@v4
+
+      - name: Checkout lexers
+        uses: actions/checkout@v4
+        with:
+          repository: soegaard/lexers
+          path: lexers
+
+      - name: Setup Racket
+        uses: Bogdanp/setup-racket@v1.11
+        with:
+          architecture: x64
+          distribution: full
+          version: stable
+
+      - name: Link local packages
+        run: |
+          raco pkg install --auto --link "$GITHUB_WORKSPACE/lexers/lexers-lib"
+          raco pkg install --auto --link "$GITHUB_WORKSPACE/parsers-lib"
+          raco pkg install --auto --link "$GITHUB_WORKSPACE/parsers-doc"
+
+      - name: Render parsers manual
+        run: raco scribble +m --htmls --dest html/ parsers-doc/parsers.scrbl
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: html/
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build-manual
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
