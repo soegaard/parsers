@@ -52,29 +52,43 @@
           #:key path->string))
   (printf "Checking ~a CSS files in ~a~n" (length paths) corpus-dir)
   (define normalized-failures '())
+  (define normalized-no-recovery-failures '())
   (define preserve-failures '())
   (for ([path (in-list paths)])
-    (define-values (normalized-failure preserve-failure)
+    (define-values (normalized-failure normalized-no-recovery-failure preserve-failure)
       (check-file-roundtrip path mode))
     (when normalized-failure
       (set! normalized-failures (cons normalized-failure normalized-failures)))
+    (when normalized-no-recovery-failure
+      (set! normalized-no-recovery-failures
+            (cons normalized-no-recovery-failure
+                  normalized-no-recovery-failures)))
     (when preserve-failure
       (set! preserve-failures (cons preserve-failure preserve-failures))))
   (define normalized-failure-count
     (length normalized-failures))
+  (define normalized-no-recovery-failure-count
+    (length normalized-no-recovery-failures))
   (define preserve-failure-count
     (length preserve-failures))
   (when (memq mode '(both normalized))
     (printf "Normalized roundtrip: ~a ok, ~a failed~n"
             (- (length paths) normalized-failure-count)
             normalized-failure-count))
+  (when (memq mode '(both normalized))
+    (printf "Normalized roundtrip (no recovery): ~a ok, ~a failed~n"
+            (- (length paths) normalized-no-recovery-failure-count)
+            normalized-no-recovery-failure-count))
   (when (memq mode '(both preserve-source))
     (printf "Preserve-source roundtrip: ~a ok, ~a failed~n"
             (- (length paths) preserve-failure-count)
             preserve-failure-count))
   (report-failures "NORMALIZED" (reverse normalized-failures))
+  (report-failures "NORMALIZED-NO-RECOVERY"
+                   (reverse normalized-no-recovery-failures))
   (report-failures "PRESERVE"   (reverse preserve-failures))
   (when (or (positive? normalized-failure-count)
+            (positive? normalized-no-recovery-failure-count)
             (positive? preserve-failure-count))
     (exit 1)))
 
@@ -105,6 +119,7 @@
                      (define failure
                        (list path (exn-message e)))
                      (values (and (memq mode '(both normalized)) failure)
+                             (and (memq mode '(both normalized)) failure)
                              (and (memq mode '(both preserve-source)) failure)))]
                   [exn:fail?
                    (lambda (e)
@@ -112,6 +127,7 @@
                        (list path (format "unexpected failure: ~a"
                                           (exn-message e))))
                      (values (and (memq mode '(both normalized)) failure)
+                             (and (memq mode '(both normalized)) failure)
                              (and (memq mode '(both preserve-source)) failure)))])
     (define source
       (file->string path))
@@ -120,11 +136,17 @@
     (define normalized-failure
       (and (memq mode '(both normalized))
            (check-normalized-roundtrip stylesheet)))
+    (define normalized-no-recovery-failure
+      (and (memq mode '(both normalized))
+           (not (css-has-recovery? stylesheet))
+           normalized-failure))
     (define preserve-failure
       (and (memq mode '(both preserve-source))
            (check-preserve-source-roundtrip source stylesheet)))
     (values (and normalized-failure
                  (list path normalized-failure))
+            (and normalized-no-recovery-failure
+                 (list path normalized-no-recovery-failure))
             (and preserve-failure
                  (list path preserve-failure)))))
 

@@ -20,6 +20,9 @@
          "css-ast.rkt"
          "css-errors.rkt")
 
+(define source-offset-map-cache
+  (make-weak-hasheq))
+
 (struct token-stream (lexer in buffer)
   #:mutable
   #:transparent)
@@ -594,8 +597,51 @@
      (define end-offset
        (position-offset end-pos))
      (substring source
-                (max 0 (sub1 start-offset))
-                (max 0 (sub1 end-offset)))]))
+                (logical-offset->string-index source start-offset)
+                (logical-offset->string-index source end-offset))]))
+
+;; logical-offset->string-index : string? exact-positive-integer? -> exact-nonnegative-integer?
+;;   Convert a parser position offset into a concrete string index.
+;;
+;; The lexer reports offsets where a CRLF newline counts as one logical step.
+;; Racket strings count CR and LF as separate characters, so Windows-style
+;; inputs need an offset-to-index conversion before substring slicing.
+(define (logical-offset->string-index source offset)
+  (define mapping
+    (hash-ref! source-offset-map-cache
+               source
+               (lambda ()
+                 (build-source-offset-map source))))
+  (define max-offset
+    (sub1 (vector-length mapping)))
+  (vector-ref mapping
+              (min (max 1 offset)
+                   max-offset)))
+
+;; build-source-offset-map : string? -> vector?
+;;   Build a mapping from logical parser offsets to concrete string indices.
+(define (build-source-offset-map source)
+  (define len
+    (string-length source))
+  (define indices
+    (let loop ([index 0]
+               [acc '(0)])
+      (cond
+        [(>= index len)
+         (reverse acc)]
+        [(and (char=? (string-ref source index) #\return)
+              (< (add1 index) len)
+              (char=? (string-ref source (add1 index)) #\newline))
+         (define next-index
+           (+ index 2))
+         (loop next-index
+               (cons next-index acc))]
+        [else
+         (define next-index
+           (add1 index))
+         (loop next-index
+               (cons next-index acc))])))
+  (list->vector (cons 0 indices)))
 
 ;; peek-significant-token : token-stream? -> (or/c css-raw-token? 'eof)
 ;;   Peek the next non-trivia token.
@@ -765,6 +811,8 @@
     (parse-css-structurally "body { color: red; }\n/"))
   (define recovered-block-stylesheet
     (parse-css-structurally "body { color: red;"))
+  (define crlf-stylesheet
+    (parse-css-structurally "* {\r\n  margin: 0;\r\n  padding: 0;\r\n}"))
   (check-equal?
    (map css-declaration-name
         (filter css-declaration?
@@ -778,6 +826,18 @@
         (filter css-style-rule?
                 (css-stylesheet-rules recovered-statement-stylesheet)))
    '("body"))
+  (define crlf-rule
+    (car (css-stylesheet-rules crlf-stylesheet)))
+  (check-equal?
+   (map css-declaration-name
+        (filter css-declaration?
+                (css-style-rule-block crlf-rule)))
+   '("margin" "padding"))
+  (check-equal?
+   (map css-declaration-value
+        (filter css-declaration?
+                (css-style-rule-block crlf-rule)))
+   '("0" "0"))
   (check-equal?
    (map css-style-rule-raw-selector
         (filter css-style-rule?
