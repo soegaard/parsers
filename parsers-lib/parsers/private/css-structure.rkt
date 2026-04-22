@@ -317,21 +317,23 @@
 (define (parse-function-or-url text start name-end)
   (define name
     (substring text start name-end))
-  (define-values (end-index raw-text)
+  (define-values (end-index _raw-text)
     (scan-balanced text name-end #\( #\)))
+  (define full-text
+    (substring text start end-index))
   (define inner-text
     (substring text (add1 name-end) (max (add1 name-end) (sub1 end-index))))
   (cond
     [(string-ci=? name "url")
      (values end-index
-             (css-component-url raw-text
+             (css-component-url full-text
                                 (string-trim inner-text)
                                 #f))]
     [else
      (values end-index
              (css-component-function name
                                      (parse-component-values inner-text)
-                                     raw-text
+                                     full-text
                                      #f))]))
 
 ;; parse-simple-block : string? exact-nonnegative-integer? -> values
@@ -753,6 +755,9 @@
     (css-selector-attribute-details-value namespaced-attribute-details)))
   (check-true (css-component-function?
                (car (css-declaration-component-values declaration))))
+  (check-equal? (css-component-function-text
+                 (car (css-declaration-component-values declaration)))
+                "rgb(1 2 3)")
   (define media-details
     (css-at-rule-prelude-derived-details media-at-rule))
   (check-true (css-media-prelude-details? media-details))

@@ -1105,8 +1105,11 @@
   (define shorthand-stylesheet
     (parse-css* (string-append
                  ".x { border: 0 solid #e0e1e2; }\n"
+                 ".rgba { border: 1px solid rgba(0, 0, 0, 0.2); }\n"
+                 ".rgb { border: 1px solid rgb(1, 2, 3); }\n"
+                 ".var-border { border: 1px solid var(--bs-border-color); }\n"
                  ".x { border-left-width: 2px; }\n"
-                 ".bottom { border-bottom: 3px dashed red; }\n"
+                 ".bottom { border-bottom: 3px dashed rgba(10, 20, 30, 0.5); }\n"
                  ".important { border: 0 solid red !important; }\n"
                  ".important { border-left-width: 2px; }\n"
                  ".specific { border: 1px solid blue; }\n"
@@ -1141,10 +1144,26 @@
          "border-color"       "#e0e1e2"))
   (check-equal?
    (css-compute-style-for-selector-group shorthand-stylesheet ".bottom")
-   (hash "border-bottom"       "3px dashed red"
+   (hash "border-bottom"       "3px dashed rgba(10, 20, 30, 0.5)"
          "border-bottom-width" "3px"
          "border-bottom-style" "dashed"
-         "border-bottom-color" "red"))
+         "border-bottom-color" "rgba(10, 20, 30, 0.5)"))
+  (check-equal?
+   (hash-ref (css-compute-style-for-selector-group shorthand-stylesheet ".rgba")
+             "border-top-color")
+   "rgba(0, 0, 0, 0.2)")
+  (check-equal?
+   (hash-ref (css-compute-style-for-selector-group shorthand-stylesheet ".rgba")
+             "border-color")
+   "rgba(0, 0, 0, 0.2)")
+  (check-equal?
+   (hash-ref (css-compute-style-for-selector-group shorthand-stylesheet ".rgb")
+             "border-top-color")
+   "rgb(1, 2, 3)")
+  (check-equal?
+   (hash-ref (css-compute-style-for-selector-group shorthand-stylesheet ".var-border")
+             "border-top-color")
+   "var(--bs-border-color)")
   (check-equal?
    (css-compute-style-for-selector-group shorthand-stylesheet ".important")
    (hash "border"              "0 solid red"
