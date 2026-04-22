@@ -48,7 +48,7 @@ jobs:
           raco pkg install --auto --link "$GITHUB_WORKSPACE/parsers-doc"
 
       - name: Render parsers manual
-        run: raco scribble +m --htmls --dest html/ parsers-doc/parsers.scrbl
+        run: raco scribble +m --htmls --dest html/ --redirect-main https://soegaard.github.io/parsers/ parsers-doc/parsers.scrbl
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -56,7 +56,7 @@ jobs:
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: html/
+          path: html/parsers/
 
   deploy:
     environment:
