@@ -7,7 +7,10 @@ on:
     paths:
       - "parsers-doc/**"
       - "parsers-lib/**"
+      - "testdata/**"
+      - "tools/**"
       - "info.rkt"
+      - "README.md"
       - ".github/workflows/build-manual.yml"
   workflow_dispatch:
 
@@ -46,6 +49,9 @@ jobs:
           raco pkg install --auto --link "$GITHUB_WORKSPACE/lexers/lexers-lib"
           raco pkg install --auto --link "$GITHUB_WORKSPACE/parsers-lib"
           raco pkg install --auto --link "$GITHUB_WORKSPACE/parsers-doc"
+
+      - name: Run stable CSS fixture checks
+        run: raco test tools/check-css-compute-fixtures.rkt
 
       - name: Render parsers manual
         run: raco scribble +m --htmls --dest html/ --redirect-main https://soegaard.github.io/parsers/ parsers-doc/parsers.scrbl
