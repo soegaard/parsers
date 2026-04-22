@@ -73,6 +73,37 @@
          css-find-declarations-in-selector-groups
          css-collect-custom-properties-in-selector-group
          css-collect-custom-properties-in-selector-groups
+         css-compute-style-for-selector-group
+         css-compute-custom-properties-for-selector-group
+         css-compute-style-trace?
+         css-compute-style-trace-selector-group
+         css-compute-style-trace-matched-rules
+         css-compute-style-trace-property-results
+         css-compute-style-trace-custom-property-results
+         css-compute-style-trace-var-resolutions
+         css-compute-matched-rule?
+         css-compute-matched-rule-selector-group
+         css-compute-matched-rule-specificity
+         css-compute-matched-rule-source-order
+         css-compute-matched-rule-rule
+         css-compute-property-result?
+         css-compute-property-result-name
+         css-compute-property-result-candidates
+         css-compute-property-result-winner
+         css-compute-candidate?
+         css-compute-candidate-name
+         css-compute-candidate-value
+         css-compute-candidate-important?
+         css-compute-candidate-specificity
+         css-compute-candidate-source-order
+         css-compute-candidate-declaration
+         css-compute-candidate-matched-rule
+         css-compute-var-resolution?
+         css-compute-var-resolution-name
+         css-compute-var-resolution-raw-value
+         css-compute-var-resolution-resolved-value
+         css-compute-var-resolution-references
+         css-compute-var-resolution-cycle?
          css-find-declarations
          css-query-selector
          css-find-rules-by-pseudo
@@ -294,6 +325,7 @@
 (require racket/list
          racket/port
          "private/css-ast.rkt"
+         "private/css-compute.rkt"
          "private/css-errors.rkt"
          "private/css-parser.rkt"
          "private/css-query.rkt"
@@ -1045,6 +1077,55 @@
      selector-query-stylesheet
      '(".a" ".b")))
    2)
+  (define computed-style-stylesheet
+    (parse-css (string-append
+                ".btn { color: red; --accent: blue; }\n"
+                ".btn { color: green; }\n"
+                ".btn { color: orange !important; }\n"
+                "@media screen { .btn { background: var(--accent); --accent: gold; } }\n"
+                ".btn { border-color: var(--border, black); }\n"
+                ".btn { --a: var(--b); --b: var(--a); }\n"
+                ".chip { margin: 0; margin: 1rem; }\n"
+                ".chip { opacity: 0.5 !important; opacity: 0.7 !important; }\n")))
+  (check-equal?
+   (css-compute-style-for-selector-group computed-style-stylesheet ".btn")
+   (hash "color" "orange"
+         "background" "var(--accent)"
+         "border-color" "var(--border, black)"))
+  (check-equal?
+   (css-compute-style-for-selector-group computed-style-stylesheet
+                                         ".btn"
+                                         #:resolve-vars? #t
+                                         #:defaults (hash "--border" "gray"))
+   (hash "color" "orange"
+         "background" "gold"
+         "border-color" "gray"))
+  (check-equal?
+   (css-compute-custom-properties-for-selector-group computed-style-stylesheet
+                                                     ".btn"
+                                                     #:resolve-vars? #t)
+   (hash "--accent" "gold"
+         "--a" "var(--b)"
+         "--b" "var(--a)"))
+  (check-equal?
+   (css-compute-style-for-selector-group computed-style-stylesheet ".chip")
+   (hash "margin" "1rem"
+         "opacity" "0.7"))
+  (define-values (computed-style computed-trace)
+    (css-compute-style-for-selector-group computed-style-stylesheet
+                                          ".btn"
+                                          #:resolve-vars? #t
+                                          #:defaults (hash "--border" "gray")
+                                          #:trace? #t))
+  (check-equal? (hash-ref computed-style "background") "gold")
+  (check-true (css-compute-style-trace? computed-trace))
+  (check-equal? (length (css-compute-style-trace-matched-rules computed-trace)) 6)
+  (check-true
+   (ormap (lambda (result)
+            (and (string=? (css-compute-property-result-name result) "color")
+                 (css-compute-candidate?
+                  (css-compute-property-result-winner result))))
+          (css-compute-style-trace-property-results computed-trace)))
   (check-equal? (length (css-find-declarations media-stylesheet "color")) 1)
   (check-equal? (length (css-query-selector grouped-stylesheet ".b")) 1)
   (check-equal? (length (css-find-rules-by-pseudo (parse-css "a:not(.x, #y) > span:nth-child(2n+1) { color: red; }") "not")) 1)

@@ -138,6 +138,40 @@ for common tooling tasks such as:
  @item{collecting derived @litchar|{@media}| and @litchar|{@supports}| information}
  @item{inspecting parser recovery output}]
 
+@subsection{Reduced Computed Style}
+
+The library also includes a small computed-style layer for tooling use cases.
+It is deliberately narrow:
+
+@itemlist[
+ @item{exact selector-group matching only}
+ @item{cascade winner selection by @tt{!important}, specificity, and source order}
+ @item{optional @tt{var(...)} resolution against computed custom properties and
+       caller-supplied defaults}
+ @item{optional trace output so downstream tools can inspect why a value won}]
+
+This is useful for stylesheet inspection tools, but it is @bold{not} a browser
+engine. In particular, it does not do general selector matching, inheritance,
+DOM simulation, media-environment evaluation, or layout.
+
+For example:
+
+@racketblock[
+(define stylesheet
+  (parse-css
+   ".btn { --accent: steelblue; color: var(--accent); }"
+   ))
+
+(css-compute-style-for-selector-group stylesheet ".btn" #:resolve-vars? #t)
+
+(css-compute-custom-properties-for-selector-group stylesheet ".btn")
+
+(css-compute-style-for-selector-group
+ stylesheet
+ ".btn"
+ #:resolve-vars? #t
+ #:defaults (hash "--accent" "royalblue"))]
+
 @section{Rewrite Helpers}
 
 The rewrite layer is broad enough now to support many PostCSS-style workflows.
@@ -1290,6 +1324,84 @@ Declarations are processed in source order, and later declarations override
 earlier ones in the returned hash. Nested rule-bearing at-rules are flattened
 the same way as @racket[css-flatten-rules], and each matching rule is processed
 at most once even if it matches more than one requested selector group.}
+
+@defproc[(css-compute-style-for-selector-group
+          [stylesheet css-stylesheet?]
+          [selector-group string?]
+          [#:resolve-vars? resolve-vars? boolean? #f]
+          [#:defaults defaults (or/c hash? #f) #f]
+          [#:trace? trace? boolean? #f])
+         any]{
+Computes a reduced tooling-oriented style result for one exact
+@racket[selector-group].
+
+Matching uses exact selector-group text only. The helper flattens nested
+rule-bearing at-rules the same way as @racket[css-flatten-rules], considers the
+declarations from matching rules in source order, and picks winners by
+@tt{!important}, then selector specificity, then later source order.
+
+The result is a hash from normalized property name to raw declaration value.
+Standard property names are normalized to lowercase. Custom properties are not
+included in this result; use
+@racket[css-compute-custom-properties-for-selector-group] for the custom
+property environment.
+
+When @racket[resolve-vars?] is true, @tt{var(...)} references are resolved
+against computed custom properties for the same selector-group target and then
+against @racket[defaults]. Unresolved references are left intact.
+
+When @racket[trace?] is true, the function returns two values:
+the computed hash and a @racket[css-compute-style-trace?] struct.}
+
+@defproc[(css-compute-custom-properties-for-selector-group
+          [stylesheet css-stylesheet?]
+          [selector-group string?]
+          [#:defaults defaults (or/c hash? #f) #f]
+          [#:resolve-vars? resolve-vars? boolean? #f]
+          [#:trace? trace? boolean? #f])
+         any]{
+Computes the final custom-property environment for one exact
+@racket[selector-group].
+
+Winner selection follows the same rules as
+@racket[css-compute-style-for-selector-group]:
+@tt{!important}, then selector specificity, then later source order.
+
+When @racket[resolve-vars?] is true, custom-property values are resolved
+against other computed custom properties and then @racket[defaults]. Cycles do
+not raise errors; cyclical values are left in their raw unresolved form.
+
+When @racket[trace?] is true, the function returns two values:
+the computed hash and a @racket[css-compute-style-trace?] struct.}
+
+@defproc[(css-compute-style-trace? [v any/c])
+         boolean?]{
+Recognizes trace payloads returned by the computed-style helpers when
+@racket[#:trace? #t] is requested.}
+
+@defproc[(css-compute-style-trace-matched-rules
+          [trace css-compute-style-trace?])
+         list?]{
+Returns the matched-rule records considered for the exact selector-group
+target. Each entry records the selector group, specificity, source order, and
+style rule.}
+
+@defproc[(css-compute-style-trace-property-results
+          [trace css-compute-style-trace?])
+         list?]{
+Returns per-property winner-selection records for standard properties. Each
+result includes the considered candidates and the winning candidate.}
+
+@defproc[(css-compute-style-trace-custom-property-results
+          [trace css-compute-style-trace?])
+         list?]{
+Returns per-property winner-selection records for custom properties.}
+
+@defproc[(css-compute-style-trace-var-resolutions
+          [trace css-compute-style-trace?])
+         list?]{
+Returns variable-resolution records describing resolved values, referenced
+custom properties, and whether cycle handling was encountered.}
 
 @defproc[(css-find-declarations [stylesheet css-stylesheet?]
                                 [name string?])
