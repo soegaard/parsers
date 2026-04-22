@@ -70,6 +70,7 @@
          css-find-rules-by-selector-group
          css-find-rules-by-raw-selector
          css-find-declarations-in-selector-group
+         css-find-declarations-in-selector-groups
          css-collect-custom-properties-in-selector-group
          css-find-declarations
          css-query-selector
@@ -1001,6 +1002,17 @@
         (css-find-declarations-in-selector-group selector-query-stylesheet
                                                  ".b"
                                                  "color"))
+   '("red" "blue" "navy"))
+  (check-equal?
+   (map css-declaration-value
+        (css-find-declarations-in-selector-groups selector-query-stylesheet
+                                                  '(".a" ".c")))
+   '("red" "green"))
+  (check-equal?
+   (map css-declaration-value
+        (css-find-declarations-in-selector-groups selector-query-stylesheet
+                                                  '(".a" ".b")
+                                                  "CoLoR"))
    '("red" "blue" "navy"))
   (check-equal?
    (hash-ref (css-collect-custom-properties-in-selector-group

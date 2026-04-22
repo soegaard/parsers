@@ -10,6 +10,7 @@
          css-find-rules-by-selector-group
          css-find-rules-by-raw-selector
          css-find-declarations-in-selector-group
+         css-find-declarations-in-selector-groups
          css-collect-custom-properties-in-selector-group
          css-find-declarations
          css-query-selector
@@ -43,10 +44,7 @@
      'css-find-rules-by-selector-group
      "string?"
      selector-group))
-  (filter (lambda (rule)
-            (member selector-group
-                    (css-style-rule-selector-groups rule)))
-          (flatten-style-rules stylesheet)))
+  (find-rules-by-selector-groups stylesheet (list selector-group)))
 
 ;; css-find-rules-by-raw-selector : css-stylesheet? string? -> list?
 ;;   Find style rules whose raw selector text matches raw-selector exactly.
@@ -87,12 +85,38 @@
      'css-find-declarations-in-selector-group
      "(or/c string? #f)"
      property-name))
+  (css-find-declarations-in-selector-groups stylesheet
+                                            (list selector-group)
+                                            property-name))
+
+;; css-find-declarations-in-selector-groups : css-stylesheet? (listof string?) [string?] -> list?
+;;   Find declarations in rules matching any selector group exactly.
+(define (css-find-declarations-in-selector-groups stylesheet
+                                                  selector-groups
+                                                  [property-name #f])
+  (unless (css-stylesheet? stylesheet)
+    (raise-argument-error
+     'css-find-declarations-in-selector-groups
+     "css-stylesheet?"
+     stylesheet))
+  (unless (and (list? selector-groups)
+               (andmap string? selector-groups))
+    (raise-argument-error
+     'css-find-declarations-in-selector-groups
+     "(listof string?)"
+     selector-groups))
+  (when (and property-name
+             (not (string? property-name)))
+    (raise-argument-error
+     'css-find-declarations-in-selector-groups
+     "(or/c string? #f)"
+     property-name))
   (append-map (lambda (rule)
                 (filter-declarations-by-name
                  (filter css-declaration?
                          (css-style-rule-block rule))
                  property-name))
-              (css-find-rules-by-selector-group stylesheet selector-group)))
+              (find-rules-by-selector-groups stylesheet selector-groups)))
 
 ;; css-collect-custom-properties-in-selector-group : css-stylesheet? string? -> hash?
 ;;   Collect custom-property declarations from matching selector-group rules.
@@ -184,6 +208,22 @@
 (define (flatten-style-rules stylesheet)
   (filter css-style-rule?
           (css-flatten-rules stylesheet)))
+
+;; find-rules-by-selector-groups : css-stylesheet? (listof string?) -> list?
+;;   Find style rules whose selector groups include any exact selector string.
+(define (find-rules-by-selector-groups stylesheet selector-groups)
+  (define selector-group-set
+    (for/hash ([selector-group (in-list selector-groups)])
+      (values selector-group #t)))
+  (filter (lambda (rule)
+            (rule-matches-selector-group-set? rule selector-group-set))
+          (flatten-style-rules stylesheet)))
+
+;; rule-matches-selector-group-set? : css-style-rule? hash? -> boolean?
+;;   Determine whether a rule includes any selector in selector-group-set.
+(define (rule-matches-selector-group-set? rule selector-group-set)
+  (for/or ([selector-group (in-list (css-style-rule-selector-groups rule))])
+    (hash-has-key? selector-group-set selector-group)))
 
 ;; flatten-rule-or-comment : any/c -> list?
 ;;   Flatten one node recursively, skipping comments.
@@ -355,6 +395,12 @@
    (map css-declaration-name
         (css-find-declarations-in-selector-group stylesheet ".b" "CoLoR"))
    '("color"))
+  (check-equal?
+   (map css-declaration-name
+        (css-find-declarations-in-selector-groups stylesheet
+                                                  '(".a" ".b")
+                                                  "cOlOr"))
+   '("color"))
   (check-equal? (length (css-find-declarations stylesheet "color")) 2)
   (check-equal? (length (css-query-selector stylesheet ".b")) 1)
   (check-equal? (length (css-find-rules-by-pseudo stylesheet "hover")) 1)
@@ -383,4 +429,41 @@
   (check-equal?
    (hash-ref (css-collect-custom-properties-in-selector-group custom-stylesheet ".card")
              "--accent")
-   "blue"))
+   "blue")
+  (define multi-selector-stylesheet
+    (css-stylesheet
+     (list (css-style-rule '(".a" ".b")
+                           (list (css-declaration "color" "red" #f #f))
+                           ".a, .b"
+                           #f)
+           (css-at-rule "@media"
+                        "screen"
+                        (list (css-style-rule '(".c")
+                                              (list (css-declaration "COLOR" "blue" #f #f)
+                                                    (css-declaration "margin" "1rem" #f #f))
+                                              ".c"
+                                              #f))
+                        #f)
+           (css-style-rule '(".b" ".c")
+                           (list (css-declaration "padding" "2rem" #f #f))
+                           ".b, .c"
+                           #f))
+     #f
+     #f))
+  (check-equal?
+   (map css-declaration-value
+        (css-find-declarations-in-selector-groups multi-selector-stylesheet
+                                                  '(".a" ".c")))
+   '("red" "blue" "1rem" "2rem"))
+  (check-equal?
+   (map css-declaration-name
+        (css-find-declarations-in-selector-groups multi-selector-stylesheet
+                                                  '(".a" ".b")
+                                                  "color"))
+   '("color"))
+  (check-equal?
+   (map css-declaration-value
+        (css-find-declarations-in-selector-groups multi-selector-stylesheet
+                                                  '(".c")
+                                                  "color"))
+   '("blue")))

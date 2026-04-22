@@ -1255,6 +1255,20 @@ Finds declarations in rules whose selector groups include
 The result preserves source order. When @racket[property-name] is provided, the
 result is filtered case-insensitively by property name.}
 
+@defproc[(css-find-declarations-in-selector-groups
+          [stylesheet css-stylesheet?]
+          [selector-groups (listof string?)]
+          [property-name (or/c string? #f) #f])
+         list?]{
+Finds declarations in rules whose selector groups include any string from
+@racket[selector-groups] exactly.
+
+The result preserves source order and flattens nested rule-bearing at-rules the
+same way as @racket[css-flatten-rules]. Each matching rule contributes its
+declarations at most once, even if it matches more than one requested selector
+group. When @racket[property-name] is provided, the result is filtered
+case-insensitively by property name.}
+
 @defproc[(css-collect-custom-properties-in-selector-group
           [stylesheet css-stylesheet?]
           [selector-group string?])
