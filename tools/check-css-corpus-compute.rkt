@@ -33,6 +33,16 @@
 (define default-max-files
   10)
 
+;; default-start-index : exact-nonnegative-integer?
+;;   Default starting index for sliced corpus runs.
+(define default-start-index
+  0)
+
+;; default-progress-every : exact-positive-integer?
+;;   Default progress reporting interval in files.
+(define default-progress-every
+  25)
+
 ;; main : -> void?
 ;;   Run the computed-style corpus checker.
 (define (main)
@@ -40,12 +50,24 @@
     default-max-selector-groups-per-file)
   (define max-files
     default-max-files)
+  (define start-index
+    default-start-index)
+  (define progress-every
+    default-progress-every)
   (define memory-limit-mb
     #f)
   (define corpus-dir
     (command-line
      #:program "check-css-corpus-compute"
      #:once-each
+     [("--start-index")
+      count
+      "Skip this many CSS files before starting the run."
+      (set! start-index
+            (parse-nonnegative-integer
+             'check-css-corpus-compute
+             "--start-index"
+             count))]
      [("--max-files")
       count
       "Check at most this many CSS files in one run."
@@ -53,6 +75,14 @@
             (parse-positive-integer
              'check-css-corpus-compute
              "--max-files"
+             count))]
+     [("--progress-every")
+      count
+      "Report progress every N processed files."
+      (set! progress-every
+            (parse-positive-integer
+             'check-css-corpus-compute
+             "--progress-every"
              count))]
      [("--max-selector-groups-per-file")
       count
@@ -80,28 +110,40 @@
      (printf "CSS corpus not found at ~a; skipping.~n" corpus-dir)]
     [else
      (check-corpus-compute corpus-dir
+                           start-index
                            max-files
+                           progress-every
                            max-selector-groups-per-file)]))
 
-;; check-corpus-compute : path-string? exact-positive-integer? exact-positive-integer? -> void?
+;; check-corpus-compute : path-string? exact-nonnegative-integer? exact-positive-integer? exact-positive-integer? exact-positive-integer? -> void?
 ;;   Check computed-style invariants for sampled selector groups in the corpus.
-(define (check-corpus-compute corpus-dir max-files max-selector-groups-per-file)
+(define (check-corpus-compute corpus-dir
+                              start-index
+                              max-files
+                              progress-every
+                              max-selector-groups-per-file)
   (define all-paths
     (sort (find-css-files corpus-dir)
           string<?
           #:key path->string))
-  (define paths
-    (take all-paths
-          (min max-files
+  (define remaining-paths
+    (drop all-paths
+          (min start-index
                (length all-paths))))
-  (printf "Checking computed styles for ~a CSS files in ~a~n"
+  (define paths
+    (take remaining-paths
+          (min max-files
+               (length remaining-paths))))
+  (printf "Checking computed styles for ~a CSS files in ~a (start index ~a)~n"
           (length paths)
-          corpus-dir)
+          corpus-dir
+          start-index)
   (flush-output)
   (define parse-failures '())
   (define compute-failures '())
   (define checked-selector-groups 0)
-  (for ([path (in-list paths)])
+  (for ([path (in-list paths)]
+        [index (in-naturals 1)])
     (define result
       (check-file-compute path max-selector-groups-per-file))
     (match result
@@ -113,7 +155,15 @@
              (cons (list path selector-group message) compute-failures))]
       [(list 'ok count)
        (set! checked-selector-groups
-             (+ checked-selector-groups count))]))
+             (+ checked-selector-groups count))])
+    (when (zero? (remainder index progress-every))
+      (printf "Progress: ~a / ~a files, ~a selector groups checked, ~a parse failures, ~a compute failures~n"
+              index
+              (length paths)
+              checked-selector-groups
+              (length parse-failures)
+              (length compute-failures))
+      (flush-output)))
   (printf "Computed-style checks: ~a selector groups ok, ~a parse failures, ~a compute failures~n"
           checked-selector-groups
           (length parse-failures)
@@ -197,8 +247,8 @@
     (check-hash-result 'resolved-custom-properties resolved-custom-properties)
     (check-hash-result 'traced-style traced-style)
     (check-hash-result 'traced-custom-properties traced-custom-properties)
-    (check-trace-result trace selector-group traced-style traced-custom-properties)
-    (check-trace-result custom-trace selector-group traced-style traced-custom-properties)
+    (check-trace-result trace selector-group style custom-properties)
+    (check-trace-result custom-trace selector-group style custom-properties)
     (list 'ok)))
 
 ;; check-hash-result : symbol? any/c -> void?
@@ -315,6 +365,21 @@
                             "option" option-name
                             "value" text)]))
 
+;; parse-nonnegative-integer : symbol? string? string? -> exact-nonnegative-integer?
+;;   Parse a nonnegative integer command-line argument.
+(define (parse-nonnegative-integer who option-name text)
+  (define n
+    (string->number text))
+  (cond
+    [(and (exact-integer? n)
+          (>= n 0))
+     n]
+    [else
+     (raise-arguments-error who
+                            "expected a nonnegative integer"
+                            "option" option-name
+                            "value" text)]))
+
 (module+ main
   (main))
 
@@ -334,6 +399,9 @@
   (check-equal?
    (parse-positive-integer 'check-css-corpus-compute "--max-selector-groups-per-file" "3")
    3)
+  (check-equal?
+   (parse-nonnegative-integer 'check-css-corpus-compute "--start-index" "0")
+   0)
   (check-equal?
    (check-selector-group-compute stylesheet ".b")
    '(ok)))

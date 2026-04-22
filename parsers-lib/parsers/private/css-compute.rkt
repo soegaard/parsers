@@ -145,10 +145,22 @@
 ;; matching-selector-group-specificity : css-style-rule? string? -> (or/c list? #f)
 ;;   Return specificity for one exact selector-group match, if present.
 (define (matching-selector-group-specificity rule selector-group)
-  (for/first ([group (in-list (css-style-rule-selector-groups rule))]
-              [selector (in-list (css-style-rule-selectors rule))]
-              #:when (string=? group selector-group))
-    (selector-group-specificity selector)))
+  (and (member selector-group (css-style-rule-selector-groups rule))
+       (selector-group-specificity/text selector-group)))
+
+;; selector-group-specificity/text : string? -> list?
+;;   Compute specificity directly from one exact selector-group string.
+(define (selector-group-specificity/text selector-group)
+  (cond
+    [(keyframes-selector-group? selector-group)
+     '(0 0 0)]
+    [else
+     (selector-group-specificity
+      (car (css-style-rule-selectors
+            (css-style-rule (list selector-group)
+                            '()
+                            selector-group
+                            #f))))]))
 
 ;; collect-declaration-candidates : list? -> list?
 ;;   Collect declaration candidates from matching rules in declaration source order.
@@ -432,6 +444,14 @@
 ;;   Compute specificity as (list ids classes types).
 (define (selector-group-specificity selector)
   (selector-parts-specificity (css-selector-parts selector)))
+
+;; keyframes-selector-group? : string? -> boolean?
+;;   Recognize @keyframes step selectors in the reduced computed-style model.
+(define (keyframes-selector-group? selector-group)
+  (or (string-ci=? selector-group "from")
+      (string-ci=? selector-group "to")
+      (regexp-match? #px"^[0-9]+(?:\\.[0-9]+)?%$"
+                     (string-trim selector-group))))
 
 ;; selector-parts-specificity : list? -> list?
 ;;   Sum specificity over flat selector parts.
