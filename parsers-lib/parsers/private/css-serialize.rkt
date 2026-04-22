@@ -34,7 +34,8 @@
 ;; serialize-stylesheet/normalized : css-stylesheet? -> string?
 ;;   Serialize a stylesheet AST with normalized spacing.
 (define (serialize-stylesheet/normalized stylesheet)
-  (string-join (map serialize-node (css-stylesheet-rules stylesheet)) "\n"))
+  (string-trim
+   (string-join (map serialize-node (css-stylesheet-rules stylesheet)) "\n")))
 
 ;; serialize-node : any/c -> string?
 ;;   Serialize one AST node.
