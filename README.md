@@ -63,6 +63,38 @@ Then check the expanded corpus with:
 racket tools/check-css-corpus.rkt /private/tmp/lexers-css-corpus-1000
 ```
 
+For computed-style checking on a local corpus, use bounded runs with an
+explicit memory cap. For one chunk:
+
+```sh
+racket tools/check-css-corpus-compute.rkt \
+  --memory-limit-mb 256 \
+  --start-index 0 \
+  --max-files 100 \
+  --progress-every 25 \
+  --max-selector-groups-per-file 2 \
+  /tmp/lexers-css-corpus
+```
+
+To sweep the whole corpus in safe chunks and print an aggregate summary, run:
+
+```sh
+sh tools/check-css-corpus-compute-all.sh /tmp/lexers-css-corpus
+```
+
+The wrapper defaults to:
+
+- `CHUNK_SIZE=100`
+- `SELECTOR_GROUPS_PER_FILE=2`
+- `MEMORY_LIMIT_MB=256`
+- `PROGRESS_EVERY=25`
+
+Override those with environment variables when needed, for example:
+
+```sh
+CHUNK_SIZE=50 MEMORY_LIMIT_MB=384 sh tools/check-css-corpus-compute-all.sh /tmp/lexers-css-corpus
+```
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
