@@ -1086,6 +1086,8 @@
                 "@media screen { .btn { background: var(--accent); --accent: gold; } }\n"
                 ".btn { border-color: var(--border, black); }\n"
                 ".btn { --a: var(--b); --b: var(--a); }\n"
+                ":root { --base: #198754; --semantic: var(--base); --semantic-2: var(--semantic); }\n"
+                ":root { --from-default: var(--external-token); }\n"
                 ".form-control { border: 0 solid #e0e1e2; }\n"
                 ".form-control { border-left-width: 2px; }\n"
                 ".chip { margin: 0; margin: 1rem; }\n"
@@ -1110,6 +1112,15 @@
    (hash "--accent" "gold"
          "--a" "var(--b)"
          "--b" "var(--a)"))
+  (check-equal?
+   (css-compute-custom-properties-for-selector-group computed-style-stylesheet
+                                                     ":root"
+                                                     #:resolve-vars? #t
+                                                     #:defaults (hash "--external-token" "#0d6efd"))
+   (hash "--base"         "#198754"
+         "--semantic"     "#198754"
+         "--semantic-2"   "#198754"
+         "--from-default" "#0d6efd"))
   (check-equal?
    (css-compute-style-for-selector-group computed-style-stylesheet ".chip")
    (hash "margin" "1rem"

@@ -500,6 +500,131 @@
                (css-compute-property-result-winner result)))))
   (define memo
     (make-hash))
+  (define default-memo
+    (make-hash))
+  ;; resolve-custom-value-text : string? list? -> values
+  ;;   Resolve var() references in a custom-property value.
+  (define (resolve-custom-value-text text stack)
+    (let loop ([start 0]
+               [pieces '()]
+               [references '()]
+               [cycle? #f])
+      (define next-var-start
+        (find-substring text "var(" start))
+      (cond
+        [(not next-var-start)
+         (values (apply string-append
+                        (reverse
+                         (cons (substring text start (string-length text))
+                               pieces)))
+                 (reverse (remove-duplicates references))
+                 cycle?)]
+        [else
+         (define var-end
+           (find-matching-close-paren text (+ next-var-start 3)))
+         (cond
+           [(not var-end)
+            (values text
+                    (reverse (remove-duplicates references))
+                    cycle?)]
+           [else
+            (define before
+              (substring text start next-var-start))
+            (define whole-var
+              (substring text next-var-start (add1 var-end)))
+            (define inner
+              (substring text (+ next-var-start 4) var-end))
+            (define-values (reference-name fallback)
+              (parse-var-inner inner))
+            (define-values (replacement next-references next-cycle?)
+              (resolve-custom-var-reference whole-var
+                                            reference-name
+                                            fallback
+                                            stack))
+            (loop (add1 var-end)
+                  (cons replacement (cons before pieces))
+                  (append next-references references)
+                  (or cycle? next-cycle?))])])))
+  ;; resolve-default-value : string? list? -> values
+  ;;   Resolve one default custom property value with memoized fallback handling.
+  ;; resolve-custom-property : string? string? hash? (or/c hash? #f) hash? list? -> values
+  ;;   Resolve one winning custom property through the local recursive resolver.
+  (define (resolve-custom-property name raw-value winners defaults memo stack)
+    (cond
+      [(hash-has-key? memo name)
+       (apply values (hash-ref memo name))]
+      [(member name stack)
+       (values raw-value (list name) #t)]
+      [else
+       (define-values (resolved-value references cycle?)
+         (resolve-custom-value-text raw-value (cons name stack)))
+       (define final-value
+         (if cycle?
+             raw-value
+             resolved-value))
+       (define final-result
+         (list final-value
+               (cons name references)
+               cycle?))
+       (hash-set! memo name final-result)
+       (apply values final-result)]))
+  ;; resolve-default-value : string? list? -> values
+  ;;   Resolve one default custom property value with memoized fallback handling.
+  (define (resolve-default-value name stack)
+    (cond
+      [(hash-has-key? default-memo name)
+       (apply values (hash-ref default-memo name))]
+      [(member name stack)
+       (values (hash-ref defaults name)
+               (list name)
+               #t)]
+      [else
+       (define raw-value
+         (hash-ref defaults name))
+       (define-values (resolved-value references cycle?)
+         (resolve-custom-value-text raw-value (cons name stack)))
+       (define final-value
+         (if cycle?
+             raw-value
+             resolved-value))
+       (define final-result
+         (list final-value
+               (cons name references)
+               cycle?))
+       (hash-set! default-memo name final-result)
+       (apply values final-result)]))
+  ;; resolve-custom-var-reference : string? string? (or/c string? #f) list? -> values
+  ;;   Resolve one var() reference in a custom-property value.
+  (define (resolve-custom-var-reference whole-var reference-name fallback stack)
+    (cond
+      [(hash-has-key? winners reference-name)
+       (cond
+         [(member reference-name stack)
+          (values whole-var (list reference-name) #t)]
+         [else
+          (define-values (resolved-value references cycle?)
+            (resolve-custom-property reference-name
+                                     (hash-ref winners reference-name)
+                                     winners
+                                     defaults
+                                     memo
+                                     (cons reference-name stack)))
+          (values (if cycle? whole-var resolved-value)
+                  (cons reference-name references)
+                  cycle?)])]
+      [(and defaults
+            (hash-has-key? defaults reference-name))
+       (define-values (resolved-value references cycle?)
+         (resolve-default-value reference-name stack))
+       (values (if cycle? whole-var resolved-value)
+               (cons reference-name references)
+               cycle?)]
+      [fallback
+       (define-values (resolved-fallback references cycle?)
+         (resolve-custom-value-text fallback stack))
+       (values resolved-fallback references cycle?)]
+      [else
+       (values whole-var (list reference-name) #f)]))
   (define resolutions '())
   (define resolved-hash
     (for/hash ([result (in-list property-results)])
@@ -1045,6 +1170,12 @@
                  ".chip { margin: 0; margin: 1rem; }\n"
                  ".chip { opacity: 0.5 !important; opacity: 0.7 !important; }\n"
                  ".chip { --tone: red !important; --tone: blue; --tone: green !important; }\n")))
+  (define custom-root-stylesheet
+    (parse-css* (string-append
+                 ":root { --a: #198754; --b: var(--a); }\n"
+                 ":root { --base: #198754; --semantic: var(--base); --semantic-2: var(--semantic); }\n"
+                 ":root { --from-default: var(--external-token); }\n"
+                 ":root { --cyc-a: var(--cyc-b); --cyc-b: var(--cyc-a); }\n")))
 
   (check-equal?
    (css-compute-style-for-selector-group computed-stylesheet ".btn")
@@ -1101,6 +1232,42 @@
             (and (string=? (css-compute-var-resolution-name resolution) "--a")
                  (css-compute-var-resolution-cycle? resolution)))
           (css-compute-style-trace-var-resolutions trace)))
+  (check-equal?
+   (css-compute-custom-properties-for-selector-group custom-root-stylesheet
+                                                     ":root"
+                                                     #:resolve-vars? #t
+                                                     #:defaults (hash "--external-token" "#0d6efd"))
+   (hash "--a"            "#198754"
+         "--b"            "#198754"
+         "--base"         "#198754"
+         "--semantic"     "#198754"
+         "--semantic-2"   "#198754"
+         "--from-default" "#0d6efd"
+         "--cyc-a"        "var(--cyc-b)"
+         "--cyc-b"        "var(--cyc-a)"))
+  (define-values (root-custom-props root-custom-trace)
+    (css-compute-custom-properties-for-selector-group custom-root-stylesheet
+                                                      ":root"
+                                                      #:resolve-vars? #t
+                                                      #:defaults (hash "--external-token" "#0d6efd")
+                                                      #:trace? #t))
+  (check-equal? (hash-ref root-custom-props "--b") "#198754")
+  (check-equal? (hash-ref root-custom-props "--semantic-2") "#198754")
+  (check-equal? (hash-ref root-custom-props "--from-default") "#0d6efd")
+  (check-equal? (hash-ref root-custom-props "--cyc-a") "var(--cyc-b)")
+  (check-true
+   (ormap (lambda (resolution)
+            (and (string=? (css-compute-var-resolution-name resolution)
+                           "--from-default")
+                 (not (not (member "--external-token"
+                                   (css-compute-var-resolution-references resolution))))))
+          (css-compute-style-trace-var-resolutions root-custom-trace)))
+  (check-true
+   (ormap (lambda (resolution)
+            (and (string=? (css-compute-var-resolution-name resolution)
+                           "--cyc-a")
+                 (css-compute-var-resolution-cycle? resolution)))
+          (css-compute-style-trace-var-resolutions root-custom-trace)))
 
   (define shorthand-stylesheet
     (parse-css* (string-append

@@ -1383,7 +1383,10 @@ Winner selection follows the same rules as
 
 When @racket[resolve-vars?] is true, custom-property values are resolved
 against other computed custom properties and then @racket[defaults]. Cycles do
-not raise errors; cyclical values are left in their raw unresolved form.
+not raise errors; cyclical values are left in their raw unresolved form. The
+returned hash contains those final resolved values directly, so downstream
+tooling does not need to run a second custom-property resolver for ordinary
+exact-target use cases.
 
 When @racket[trace?] is true, the function returns two values:
 the computed hash and a @racket[css-compute-style-trace?] struct.}
