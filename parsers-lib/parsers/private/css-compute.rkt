@@ -608,7 +608,7 @@
                                      winners
                                      defaults
                                      memo
-                                     (cons reference-name stack)))
+                                     stack))
           (values (if cycle? whole-var resolved-value)
                   (cons reference-name references)
                   cycle?)])]
@@ -1174,6 +1174,8 @@
     (parse-css* (string-append
                  ":root { --a: #198754; --b: var(--a); }\n"
                  ":root { --base: #198754; --semantic: var(--base); --semantic-2: var(--semantic); }\n"
+                 ":root { --bs-font-sans-serif: \"Nunito Sans\", Arial, sans-serif; --bs-body-font-family: var(--bs-font-sans-serif); }\n"
+                 ":root { --bs-success: #198754; --bs-form-valid-color: var(--bs-success); }\n"
                  ":root { --from-default: var(--external-token); }\n"
                  ":root { --cyc-a: var(--cyc-b); --cyc-b: var(--cyc-a); }\n")))
 
@@ -1242,6 +1244,10 @@
          "--base"         "#198754"
          "--semantic"     "#198754"
          "--semantic-2"   "#198754"
+         "--bs-font-sans-serif" "\"Nunito Sans\", Arial, sans-serif"
+         "--bs-body-font-family" "\"Nunito Sans\", Arial, sans-serif"
+         "--bs-success" "#198754"
+         "--bs-form-valid-color" "#198754"
          "--from-default" "#0d6efd"
          "--cyc-a"        "var(--cyc-b)"
          "--cyc-b"        "var(--cyc-a)"))
@@ -1253,6 +1259,9 @@
                                                       #:trace? #t))
   (check-equal? (hash-ref root-custom-props "--b") "#198754")
   (check-equal? (hash-ref root-custom-props "--semantic-2") "#198754")
+  (check-equal? (hash-ref root-custom-props "--bs-body-font-family")
+                "\"Nunito Sans\", Arial, sans-serif")
+  (check-equal? (hash-ref root-custom-props "--bs-form-valid-color") "#198754")
   (check-equal? (hash-ref root-custom-props "--from-default") "#0d6efd")
   (check-equal? (hash-ref root-custom-props "--cyc-a") "var(--cyc-b)")
   (check-true

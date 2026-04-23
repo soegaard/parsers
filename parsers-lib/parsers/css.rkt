@@ -1087,6 +1087,8 @@
                 ".btn { border-color: var(--border, black); }\n"
                 ".btn { --a: var(--b); --b: var(--a); }\n"
                 ":root { --base: #198754; --semantic: var(--base); --semantic-2: var(--semantic); }\n"
+                ":root { --bs-font-sans-serif: \"Nunito Sans\", Arial, sans-serif; --bs-body-font-family: var(--bs-font-sans-serif); }\n"
+                ":root { --bs-success: #198754; --bs-form-valid-color: var(--bs-success); }\n"
                 ":root { --from-default: var(--external-token); }\n"
                 ".form-control { border: 0 solid #e0e1e2; }\n"
                 ".form-control { border-left-width: 2px; }\n"
@@ -1120,6 +1122,10 @@
    (hash "--base"         "#198754"
          "--semantic"     "#198754"
          "--semantic-2"   "#198754"
+         "--bs-font-sans-serif" "\"Nunito Sans\", Arial, sans-serif"
+         "--bs-body-font-family" "\"Nunito Sans\", Arial, sans-serif"
+         "--bs-success" "#198754"
+         "--bs-form-valid-color" "#198754"
          "--from-default" "#0d6efd"))
   (check-equal?
    (css-compute-style-for-selector-group computed-style-stylesheet ".chip")
