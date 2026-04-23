@@ -1178,6 +1178,11 @@
                  ":root { --bs-success: #198754; --bs-form-valid-color: var(--bs-success); }\n"
                  ":root { --from-default: var(--external-token); }\n"
                  ":root { --cyc-a: var(--cyc-b); --cyc-b: var(--cyc-a); }\n")))
+  (define custom-alias-stylesheet
+    (parse-css* (string-append
+                 ":root { --bs-success: #198754; --bs-form-valid-color: var(--bs-success); }\n"
+                 ":root { --bs-semantic: var(--bs-success); --bs-form-valid-color-2: var(--bs-semantic); }\n"
+                 ":root { --bs-form-valid-color-3: var(--external); }\n")))
 
   (check-equal?
    (css-compute-style-for-selector-group computed-stylesheet ".btn")
@@ -1277,6 +1282,24 @@
                            "--cyc-a")
                  (css-compute-var-resolution-cycle? resolution)))
           (css-compute-style-trace-var-resolutions root-custom-trace)))
+  (check-equal?
+   (css-compute-custom-properties-for-selector-group custom-alias-stylesheet
+                                                     ":root")
+   (hash "--bs-success"             "#198754"
+         "--bs-form-valid-color"    "var(--bs-success)"
+         "--bs-semantic"            "var(--bs-success)"
+         "--bs-form-valid-color-2"  "var(--bs-semantic)"
+         "--bs-form-valid-color-3"  "var(--external)"))
+  (check-equal?
+   (css-compute-custom-properties-for-selector-group custom-alias-stylesheet
+                                                     ":root"
+                                                     #:resolve-vars? #t
+                                                     #:defaults (hash "--external" "#198754"))
+   (hash "--bs-success"             "#198754"
+         "--bs-form-valid-color"    "#198754"
+         "--bs-semantic"            "#198754"
+         "--bs-form-valid-color-2"  "#198754"
+         "--bs-form-valid-color-3"  "#198754"))
 
   (define shorthand-stylesheet
     (parse-css* (string-append

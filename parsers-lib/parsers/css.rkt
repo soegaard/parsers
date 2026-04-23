@@ -1089,6 +1089,8 @@
                 ":root { --base: #198754; --semantic: var(--base); --semantic-2: var(--semantic); }\n"
                 ":root { --bs-font-sans-serif: \"Nunito Sans\", Arial, sans-serif; --bs-body-font-family: var(--bs-font-sans-serif); }\n"
                 ":root { --bs-success: #198754; --bs-form-valid-color: var(--bs-success); }\n"
+                ":root { --bs-semantic: var(--bs-success); --bs-form-valid-color-2: var(--bs-semantic); }\n"
+                ":root { --bs-form-valid-color-3: var(--external-token); }\n"
                 ":root { --from-default: var(--external-token); }\n"
                 ".form-control { border: 0 solid #e0e1e2; }\n"
                 ".form-control { border-left-width: 2px; }\n"
@@ -1116,6 +1118,20 @@
          "--b" "var(--a)"))
   (check-equal?
    (css-compute-custom-properties-for-selector-group computed-style-stylesheet
+                                                     ":root")
+   (hash "--base"                   "#198754"
+         "--semantic"               "var(--base)"
+         "--semantic-2"             "var(--semantic)"
+         "--bs-font-sans-serif"     "\"Nunito Sans\", Arial, sans-serif"
+         "--bs-body-font-family"    "var(--bs-font-sans-serif)"
+         "--bs-success"             "#198754"
+         "--bs-form-valid-color"    "var(--bs-success)"
+         "--bs-semantic"            "var(--bs-success)"
+         "--bs-form-valid-color-2"  "var(--bs-semantic)"
+         "--bs-form-valid-color-3"  "var(--external-token)"
+         "--from-default"           "var(--external-token)"))
+  (check-equal?
+   (css-compute-custom-properties-for-selector-group computed-style-stylesheet
                                                      ":root"
                                                      #:resolve-vars? #t
                                                      #:defaults (hash "--external-token" "#0d6efd"))
@@ -1126,6 +1142,9 @@
          "--bs-body-font-family" "\"Nunito Sans\", Arial, sans-serif"
          "--bs-success" "#198754"
          "--bs-form-valid-color" "#198754"
+         "--bs-semantic" "#198754"
+         "--bs-form-valid-color-2" "#198754"
+         "--bs-form-valid-color-3" "#0d6efd"
          "--from-default" "#0d6efd"))
   (check-equal?
    (css-compute-style-for-selector-group computed-style-stylesheet ".chip")
