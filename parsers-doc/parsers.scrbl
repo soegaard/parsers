@@ -175,6 +175,17 @@ For example:
  #:resolve-vars? #t
  #:defaults (hash "--accent" "royalblue"))]
 
+The results are:
+
+@itemlist[
+ @item{The resolved computed style is
+       @tt{#hash((\"color\" . \"steelblue\"))}.}
+ @item{The computed custom-property environment is
+       @tt{#hash(((\"--accent\" . \"steelblue\")))}.}
+ @item{The final call also returns
+       @tt{#hash((\"color\" . \"steelblue\"))}, because the local custom
+       property already wins over the fallback default.}]
+
 @section{Rewrite Helpers}
 
 The rewrite layer is broad enough now to support many PostCSS-style workflows.
