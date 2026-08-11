@@ -2,6 +2,8 @@
 compiled/
 /doc/
 /html/
+/reference/
+/DESIGN.md
 *~
 *.bak
 \#*
