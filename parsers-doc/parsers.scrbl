@@ -13,17 +13,17 @@
 @title{Parsers}
 @author+email["Jens Axel Søgaard" "jensaxel@soegaard.net"]
 
-This manual documents the public APIs in the @tt{parsers} packages.
-
-@italic{Note:} The @tt{parsers} package and this documentation were written
-with Codex.
-
 @defmodule[parsers/css]
 
-The first target is a reusable CSS parser and rewrite library intended for
-tooling-oriented use cases such as selector inspection, declaration lookup,
-cascade-oriented analysis, source-preserving edits, and later higher-level
-transforms.
+@italic{Note:}
+The @tt{parsers} package and this documentation were written with the help of Codex.
+
+The intention is that @racketmodname[parsers] will become a collection of parsers.
+In this first version, it just provides a CSS parser and a CSS rewriter.
+
+The CSS parser and rewrite library is intended for tooling-oriented use cases such
+as selector inspection, declaration lookup, cascade-oriented analysis,
+source-preserving edits, and later higher-level transforms.
 
 @section{Overview}
 
