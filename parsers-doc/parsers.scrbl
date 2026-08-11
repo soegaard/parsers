@@ -2,7 +2,28 @@
 
 @(require scribble/example
           (for-label racket/base
-                     parsers/css))
+                     (only-in parsers/css
+                              current-css-standard
+                              parse-css
+                              parse-stylesheet)
+                     (except-in parsers/private/css-ast
+                                css-at-rule
+                                css-comment
+                                css-declaration
+                                css-qualified-rule
+                                css-recovery
+                                css-source-span
+                                css-style-rule
+                                css-stylesheet)
+                     parsers/private/css-compute
+                     parsers/private/css-errors
+                     parsers/private/css-parser
+                     parsers/private/css-query
+                     parsers/private/css-recovery
+                     parsers/private/css-rewrite
+                     parsers/private/css-serialize
+                     parsers/private/css-standard
+                     parsers/private/css-structure))
 
 @(define css-eval
    (let ([the-eval (make-base-eval)])
