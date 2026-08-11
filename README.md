@@ -2,7 +2,7 @@
 
 Reusable parsers for multiple consumers.
 
-The repository is arranged like `../lexers` and split into three packages:
+The repository is split into three Racket packages:
 
 - `parsers`
   Meta-package that installs the library and documentation
