@@ -13,30 +13,47 @@
 @title{Parsers}
 @author+email["Jens Axel Søgaard" "jensaxel@soegaard.net"]
 
-@defmodule[parsers/css]
-
 @italic{Note:}
-The @tt{parsers} package and this documentation were written with the help of Codex.
+The @tt{parsers} library and documentation were written with the help of Codex.
 
-The intention is that @racketmodname[parsers] will become a collection of parsers.
-In this first version, it just provides a CSS parser and a CSS rewriter.
+The @tt{parsers} package is a collection of reusable parsers.
+This first release provides a CSS parser and a few CSS tools for inspection
+and rewriting.
 
-The CSS parser and rewrite library is intended for tooling-oriented use cases such
-as selector inspection, declaration lookup, cascade-oriented analysis,
+The manual is organized by language. Future parsers will get their own
+chapters; the CSS chapter below documents the current public API.
+
+@local-table-of-contents[]
+
+@section{CSS}
+
+@defmodule[parsers/css
+           #:use-sources (parsers/private/css-ast
+                          parsers/private/css-compute
+                          parsers/private/css-errors
+                          parsers/private/css-parser
+                          parsers/private/css-query
+                          parsers/private/css-recovery
+                          parsers/private/css-rewrite
+                          parsers/private/css-serialize
+                          parsers/private/css-standard
+                          parsers/private/css-structure)]
+
+CSS is the stylesheet language used to describe the presentation of
+HTML and other structured documents, including layout, colors,
+typography, and responsive styling.
+
+This CSS parser and rewrite library is intended for tooling-oriented use cases
+such as selector inspection, declaration lookup, cascade-oriented analysis,
 source-preserving edits, and later higher-level transforms.
 
-@section{Overview}
-
-The @racketmodname[parsers] collection is arranged like @filepath{../lexers}:
-the public library lives in @tt{parsers-lib}, the manual lives in
-@tt{parsers-doc}, and the top-level @tt{parsers} package installs both.
+@subsection{Overview}
 
 The public CSS entry point is @racketmodname[parsers/css]. It is intended to
 track the modern CSS standard over time. If fixed compatibility targets become
-useful later, they can be added as separate module paths such as
-@racketmodname[parsers/css-snapshot-2026].
+useful later, they can be added as separate module paths.
 
-This library is built around four layers:
+The CSS library is built around five layers:
 
 @itemlist[
  @item{@bold{Parsing}: raw CSS source becomes a stylesheet AST.}
@@ -45,6 +62,9 @@ This library is built around four layers:
        AST.}
  @item{@bold{Queries}: common lookups such as “find declarations”, “find rules
        by pseudo”, or “find supports features”.}
+ @item{@bold{Reduced computed style}: exact-target winner selection and limited
+       shorthand expansion for tooling that needs final values without a
+       browser engine.}
  @item{@bold{Rewrites}: normalized AST rewrites plus a smaller
        source-preserving rewrite layer for targeted declaration/block edits.}]
 
@@ -52,9 +72,16 @@ The parser is intentionally @italic{not} a browser engine, layout engine, or
 full CSS semantic validator. It parses structure faithfully enough for tooling
 and rewriting, and keeps semantic interpretation layered on top.
 
-@section{Quick Start}
 
-For most consumers, the workflow is:
+@subsection{Quick Start}
+
+Install the package with @tt{raco pkg install parsers}, then require the CSS
+module:
+
+@racketblock[
+(require parsers/css)]
+
+For most users, the workflow is:
 
 @itemlist[
  @item{parse a stylesheet with @racket[parse-css]}
@@ -67,23 +94,195 @@ For most consumers, the workflow is:
   (parse-css ".card, .panel { color: red; }"))
 (css-stylesheet? stylesheet)
 (map css-style-rule-selector-groups (css-stylesheet-rules stylesheet))
+(map css-declaration-value
+     (css-find-declarations-in-selector-group stylesheet ".card" "color"))
 (serialize-stylesheet
  (css-rename-class stylesheet "card" "tile"))
 ]
 
-@section{Core Model}
+To parse a file, pass an input port:
+
+@racketblock[
+(define stylesheet
+  (call-with-input-file "site.css" parse-css))]
+
+Malformed input is recorded with recovery nodes when the parser can continue:
+
+@examples[#:eval css-eval
+(define recovered
+  (parse-css ".ok { color: red; }\n.bad { color }\n.next { color: blue; }"))
+(css-has-recovery? recovered)
+(length (css-recovery-nodes recovered))
+]
+
+@subsection{Cookbook}
+
+This section is intended to give a taste of what can be done
+with the parsed stylesheet. See the full reference later for
+details.
+
+@itemlist[
+ @item{@bold{Rename a class}: use @racket[css-rename-class].}
+ @item{@bold{Scope a stylesheet}: use @racket[css-prefix-selectors].}
+ @item{@bold{Rename a custom property}: use
+       @racket[css-rename-custom-property].}
+ @item{@bold{Rewrite URLs}: use @racket[css-rewrite-url-values].}
+ @item{@bold{Wrap matching rules in @litchar|{@media}|}: use
+       @racket[css-wrap-rules-in-media].}
+ @item{@bold{Split grouped selectors}: use
+       @racket[css-split-grouped-selectors].}
+ @item{@bold{Remove duplicate declarations}: use
+       @racket[css-dedupe-declarations].}
+ @item{@bold{Inspect selector pseudos}: use @racket[css-style-rule-selectors]
+       together with @racket[css-find-rules-by-pseudo].}]
+
+@subsubsection{Rename A Class}
+
+This example renames @tt{.card} to @tt{.tile}.
+
+@examples[#:eval css-eval
+(define rename-class-input
+  ".card:hover, .card .title { color: red; }")
+(define rename-class-output
+  (serialize-stylesheet
+   (css-rename-class
+    (parse-css rename-class-input)
+    "card"
+    "tile")))
+rename-class-input
+rename-class-output
+]
+
+@subsubsection{Scope A Stylesheet}
+
+This example prefixes every selector with @tt{.scope}.
+
+@examples[#:eval css-eval
+(define scope-input
+  "body { color: red; }")
+(define scope-output
+  (serialize-stylesheet
+   (css-prefix-selectors
+    (parse-css scope-input)
+    ".scope")))
+scope-input
+scope-output
+]
+
+@subsubsection{Rename A Custom Property}
+
+This example renames @tt{--brand} to @tt{--accent} in both declaration names
+and @tt{var(...)} references.
+
+@examples[#:eval css-eval
+(define custom-property-input
+  ":root { --brand: red; color: var(--brand); }")
+(define custom-property-output
+  (serialize-stylesheet
+   (css-rename-custom-property
+    (parse-css custom-property-input)
+    "--brand"
+    "--accent")))
+custom-property-input
+custom-property-output
+]
+
+@subsubsection{Rewrite URLs}
+
+This example rewrites both declaration and @litchar|{@import}| URLs.
+
+@examples[#:eval css-eval
+(define rewrite-url-input
+  "body { background: url(\"a.png\"); }\n@import url(\"b.css\") screen;")
+(define rewrite-url-output
+  (serialize-stylesheet
+   (css-rewrite-url-values
+    (parse-css rewrite-url-input)
+    (lambda (inner)
+      (cond
+        [(equal? inner "\"a.png\"") "\"c.png\""]
+        [(equal? inner "\"b.css\"") "\"d.css\""]
+        [else inner])))))
+rewrite-url-input
+rewrite-url-output
+]
+
+@subsubsection{Wrap Matching Rules In @litchar|{@media}|}
+
+This example wraps the @tt{body} rule in a new @litchar|{@media}| block.
+
+@examples[#:eval css-eval
+(define wrap-media-input
+  "body { color: red; }")
+(define wrap-media-output
+  (serialize-stylesheet
+   (css-wrap-rules-in-media
+    (parse-css wrap-media-input)
+    "body"
+    "screen")))
+wrap-media-input
+wrap-media-output
+]
+
+@subsubsection{Split Grouped Selectors}
+
+This example splits one grouped rule into two separate rules.
+
+@examples[#:eval css-eval
+(define split-selectors-input
+  ".a, .b { background: rgb(1 2 3); }")
+(define split-selectors-output
+  (serialize-stylesheet
+   (css-split-grouped-selectors
+    (parse-css split-selectors-input))))
+split-selectors-input
+split-selectors-output
+]
+
+@subsubsection{Remove Duplicate Declarations}
+
+This example keeps the last duplicate declaration in the rule.
+
+@examples[#:eval css-eval
+(define dedupe-input
+  "body { color: red; color: blue; margin: 0; }")
+(define dedupe-output
+  (serialize-stylesheet
+   (css-dedupe-declarations
+    (parse-css dedupe-input))))
+dedupe-input
+dedupe-output
+]
+
+@subsubsection{Inspect Selector Pseudos}
+
+This example finds rules that use the pseudo selector @tt{:not}.
+
+@examples[#:eval css-eval
+(define pseudo-input
+  "a:not(.x, #y) > span:nth-child(2n+1) { color: red; }")
+(define pseudo-stylesheet
+  (parse-css pseudo-input))
+(define pseudo-rules
+  (css-find-rules-by-pseudo pseudo-stylesheet "not"))
+pseudo-input
+(length pseudo-rules)
+(map css-style-rule-selector-groups pseudo-rules)
+]
+
+
+
+@subsection{Core Model}
 
 The parser returns a small explicit AST:
 
 @itemlist[
- @item{@racket[css-stylesheet?] for a full stylesheet}
- @item{@racket[css-style-rule?] for ordinary style rules}
- @item{@racket[css-at-rule?] for at-rules such as @litchar|{@media}| and
-       @litchar|{@supports}|}
+ @item{@racket[css-stylesheet?]  for a full stylesheet}
+ @item{@racket[css-style-rule?]  for ordinary style rules}
+ @item{@racket[css-at-rule?]     for at-rules such as @litchar|{@media}| and @litchar|{@supports}|}
  @item{@racket[css-declaration?] for declarations}
- @item{@racket[css-comment?] for preserved comments}
- @item{@racket[css-recovery?] for malformed fragments the parser skipped but
-       recorded}
+ @item{@racket[css-comment?]     for preserved comments}
+ @item{@racket[css-recovery?]    for malformed fragments the parser skipped but recorded}
  @item{@racket[css-source-span?] for source locations when available}]
 
 The AST is intentionally simpler than a browser’s internal model. Raw selector
@@ -91,7 +290,20 @@ text, declaration values, source order, comments, and recovery information are
 preserved first; richer interpretation is exposed through helper APIs rather
 than forced into the base tree.
 
-@section{Parsing}
+The public module exports predicates and accessors for AST values returned by
+the parser. It does not export the core AST constructors as the primary editing
+interface. For edits, prefer the rewrite helpers; when a helper asks for a
+replacement rule node, a common pattern is to parse a small CSS snippet and
+extract the rule from the resulting stylesheet.
+
+@examples[#:eval css-eval
+(define replacement-rule
+  (car (css-stylesheet-rules
+        (parse-css ".notice { color: blue; }"))))
+(css-style-rule? replacement-rule)
+]
+
+@subsection{Parsing}
 
 The parser currently handles a substantial structural subset of modern CSS,
 including style rules, grouped selectors, declarations, comments, and common
@@ -101,7 +313,7 @@ at-rules such as @litchar|{@media}|, @litchar|{@supports}|,
 Internally it uses:
 
 @itemlist[
- @item{@racketmodname[lexers/css] as the tokenizer source}
+ @item{@tt{lexers/css} as the tokenizer source}
  @item{a handwritten structural reader for rules, at-rules, blocks, and
        declarations}
  @item{derived selector/value/media/supports helpers layered on top of the raw
@@ -111,7 +323,23 @@ Malformed input is handled with recovery nodes where possible, so tooling can
 keep working on imperfect stylesheets instead of failing hard on the first
 error.
 
-@section{Serialization}
+As a release target, the parser aims to preserve useful structure rather than
+prove that every value is semantically valid CSS:
+
+@itemlist[
+ @item{@bold{Generally supported}: stylesheets, style rules, grouped
+       selectors, declarations, comments, common rule-bearing at-rules,
+       @litchar|{@import}|, @litchar|{@font-face}|, and @litchar|{@keyframes}|.}
+ @item{@bold{Derived support}: selector parts, component values, selected
+       @litchar|{@media}| preludes, and selected @litchar|{@supports}|
+       conditions.}
+ @item{@bold{Recovered}: malformed statements and declarations when the parser
+       can skip the fragment and continue.}
+ @item{@bold{Out of scope}: browser validation, DOM matching, layout,
+       inheritance, media-environment simulation, and framework-specific
+       behavior.}]
+
+@subsection{Serialization}
 
 There are two main serialization modes:
 
@@ -125,7 +353,7 @@ Most normalized AST rewrites clear the preserved source string intentionally.
 The smaller source-preserving rewrite family edits source slices directly and
 then reparses the result.
 
-@section{Query Helpers}
+@subsection{Query Helpers}
 
 Query helpers sit above the raw AST and derived structures. They are intended
 for common tooling tasks such as:
@@ -135,10 +363,35 @@ for common tooling tasks such as:
  @item{finding declarations by property}
  @item{matching exact selector groups or exact raw selector text}
  @item{querying selectors or pseudos}
+ @item{computing reduced exact-target style and custom-property environments}
  @item{collecting derived @litchar|{@media}| and @litchar|{@supports}| information}
  @item{inspecting parser recovery output}]
 
-@subsection{Reduced Computed Style}
+@subsubsection{Choosing Helpers}
+
+The helper families intentionally sit at different levels:
+
+@itemlist[
+ @item{Use @racket[css-find-rules-by-selector-group] when you know the exact
+       selector group text you want, such as @racket[".btn"] or
+       @racket[".dropdown-menu .dropdown-item"].}
+ @item{Use @racket[css-find-rules-by-raw-selector] when the whole selector
+       prelude must match exactly, including grouped selector text.}
+ @item{Use @racket[css-query-selector] or @racket[css-find-rules-by-pseudo]
+       when derived selector structure is more useful than raw text.}
+ @item{Use @racket[css-collect-custom-properties-in-selector-group] for a
+       source-order custom-property collector with later declarations
+       overriding earlier ones.}
+ @item{Use @racket[css-compute-custom-properties-for-selector-group] when you
+       need exact-target winner selection with importance, specificity, source
+       order, and optional @tt{var(...)} resolution.}
+ @item{Use @racket[css-compute-style-for-selector-group] when you need final
+       standard-property values for one exact selector-group target, including
+       the limited shorthand expansion documented below.}
+ @item{Use rewrite helpers when you want a new stylesheet AST or a targeted
+       source-preserving edit rather than just inspection results.}]
+
+@subsubsection{Reduced Computed Style}
 
 The library also includes a small computed-style layer for tooling use cases.
 It is deliberately narrow:
@@ -157,36 +410,78 @@ This is useful for stylesheet inspection tools, but it is @bold{not} a browser
 engine. In particular, it does not do general selector matching, inheritance,
 DOM simulation, media-environment evaluation, or layout.
 
-For example:
+Exact matching means that @tt{.btn} and @tt{.btn:hover} are different
+selector-group targets. Nested rule-bearing at-rules such as
+@litchar|{@media}| are included by structural flattening, but their conditions
+are not evaluated.
 
-@racketblock[
-(define stylesheet
+@examples[#:eval css-eval
+(define exact-style
   (parse-css
-   ".btn { --accent: steelblue; color: var(--accent); }"
-   ))
+   (string-append
+    ".btn:hover { color: red; }\n"
+    ".btn { color: blue; }\n"
+    "@media screen { .btn { color: green; } }")))
+(length (css-find-rules-by-selector-group exact-style ".btn"))
+(length (css-find-rules-by-selector-group exact-style ".btn:hover"))
+(hash-ref (css-compute-style-for-selector-group exact-style ".btn")
+          "color"
+          #f)
+]
 
-(css-compute-style-for-selector-group stylesheet ".btn" #:resolve-vars? #t)
+Custom properties can be returned as their own exact-target environment, and
+standard properties can optionally resolve @tt{var(...)} references through
+that environment and caller-supplied defaults.
 
-(css-compute-custom-properties-for-selector-group stylesheet ".btn")
+@examples[#:eval css-eval
+(define computed-style
+  (parse-css
+   (string-append
+    ".btn { --accent: steelblue; color: var(--accent); padding: 1px 2px; }\n"
+    ".fallback { color: var(--missing); }")))
+(hash-ref (css-compute-custom-properties-for-selector-group
+           computed-style
+           ".btn"
+           #:resolve-vars? #t)
+          "--accent"
+          #f)
+(hash-ref (css-compute-style-for-selector-group
+           computed-style
+           ".btn"
+           #:resolve-vars? #t)
+          "color"
+          #f)
+(hash-ref (css-compute-style-for-selector-group
+           computed-style
+           ".btn")
+          "padding-left"
+          #f)
+(hash-ref (css-compute-style-for-selector-group
+           computed-style
+           ".fallback"
+           #:resolve-vars? #t
+           #:defaults (hash "--missing" "royalblue"))
+          "color"
+          #f)
+]
 
-(css-compute-style-for-selector-group
- stylesheet
- ".btn"
- #:resolve-vars? #t
- #:defaults (hash "--accent" "royalblue"))]
+When @racket[#:trace?] is true, the computed-style helpers return two values:
+the computed hash and an inspectable @racket[css-compute-style-trace?]
+payload.
 
-The results are:
+@examples[#:eval css-eval
+(define-values (style trace)
+  (css-compute-style-for-selector-group
+   computed-style
+   ".btn"
+   #:resolve-vars? #t
+   #:trace? #t))
+(css-compute-style-trace? trace)
+(length (css-compute-style-trace-matched-rules trace))
+(hash-ref style "color" #f)
+]
 
-@itemlist[
- @item{The resolved computed style is
-       @tt{#hash((\"color\" . \"steelblue\"))}.}
- @item{The computed custom-property environment is
-       @tt{#hash(((\"--accent\" . \"steelblue\")))}.}
- @item{The final call also returns
-       @tt{#hash((\"color\" . \"steelblue\"))}, because the local custom
-       property already wins over the fallback default.}]
-
-@section{Rewrite Helpers}
+@subsection{Rewrite Helpers}
 
 The rewrite layer is broad enough now to support many PostCSS-style workflows.
 @margin-note{PostCSS is a JavaScript-based CSS transformation ecosystem built
@@ -208,7 +503,7 @@ The important design distinction is that some helpers are fully AST-based,
 while others still operate on preserved raw selector or prelude text. The
 reference section calls that out where it matters.
 
-@section{Derived Structures}
+@subsection{Derived Structures}
 
 The raw AST keeps selectors and many values as preserved text. Richer structure
 is available through helper APIs:
@@ -225,7 +520,7 @@ This layered approach keeps the parser reusable: consumers can stay close to
 the raw source when they need fidelity, or opt into richer interpretation when
 they need convenience.
 
-@section{Limitations}
+@subsection{Limitations}
 
 Current limitations worth knowing up front:
 
@@ -237,200 +532,45 @@ Current limitations worth knowing up front:
        not for every normalized transform.}
  @item{Nesting helpers operate on nested AST structure; they do not magically
        infer arbitrary future syntax beyond what the parser has represented.}
- @item{The manual’s cross-reference polish is still improving, even though the
-       API coverage is broad.}]
+ @item{The computed-style helpers use an exact selector-group model; they do
+       not match selectors against a DOM tree.}]
 
-@section{Cookbook}
 
-Some practical starting points:
+@subsection{Reference}
 
-@itemlist[
- @item{@bold{Rename a class}: use @racket[css-rename-class].}
- @item{@bold{Scope a stylesheet}: use @racket[css-prefix-selectors].}
- @item{@bold{Rename a custom property}: use
-       @racket[css-rename-custom-property].}
- @item{@bold{Rewrite URLs}: use @racket[css-rewrite-url-values].}
- @item{@bold{Wrap matching rules in @litchar|{@media}|}: use
-       @racket[css-wrap-rules-in-media].}
- @item{@bold{Split grouped selectors}: use
-       @racket[css-split-grouped-selectors].}
- @item{@bold{Remove duplicate declarations}: use
-       @racket[css-dedupe-declarations].}
- @item{@bold{Inspect selector pseudos}: use @racket[css-style-rule-selectors]
-       together with @racket[css-find-rules-by-pseudo].}]
+The remainder of this chapter is the API reference.
 
-@subsection{Rename A Class}
-
-This example renames @tt{.card} to @tt{.tile}.
-
-@examples[#:eval css-eval
-(define rename-class-input
-  ".card:hover, .card .title { color: red; }")
-(define rename-class-output
-  (serialize-stylesheet
-   (css-rename-class
-    (parse-css rename-class-input)
-    "card"
-    "tile")))
-rename-class-input
-rename-class-output
-]
-
-@subsection{Scope A Stylesheet}
-
-This example prefixes every selector with @tt{.scope}.
-
-@examples[#:eval css-eval
-(define scope-input
-  "body { color: red; }")
-(define scope-output
-  (serialize-stylesheet
-   (css-prefix-selectors
-    (parse-css scope-input)
-    ".scope")))
-scope-input
-scope-output
-]
-
-@subsection{Rename A Custom Property}
-
-This example renames @tt{--brand} to @tt{--accent} in both declaration names
-and @tt{var(...)} references.
-
-@examples[#:eval css-eval
-(define custom-property-input
-  ":root { --brand: red; color: var(--brand); }")
-(define custom-property-output
-  (serialize-stylesheet
-   (css-rename-custom-property
-    (parse-css custom-property-input)
-    "--brand"
-    "--accent")))
-custom-property-input
-custom-property-output
-]
-
-@subsection{Rewrite URLs}
-
-This example rewrites both declaration and @litchar|{@import}| URLs.
-
-@examples[#:eval css-eval
-(define rewrite-url-input
-  "body { background: url(\"a.png\"); }\n@import url(\"b.css\") screen;")
-(define rewrite-url-output
-  (serialize-stylesheet
-   (css-rewrite-url-values
-    (parse-css rewrite-url-input)
-    (lambda (inner)
-      (cond
-        [(equal? inner "\"a.png\"") "\"c.png\""]
-        [(equal? inner "\"b.css\"") "\"d.css\""]
-        [else inner])))))
-rewrite-url-input
-rewrite-url-output
-]
-
-@subsection{Wrap Matching Rules In @litchar|{@media}|}
-
-This example wraps the @tt{body} rule in a new @litchar|{@media}| block.
-
-@examples[#:eval css-eval
-(define wrap-media-input
-  "body { color: red; }")
-(define wrap-media-output
-  (serialize-stylesheet
-   (css-wrap-rules-in-media
-    (parse-css wrap-media-input)
-    "body"
-    "screen")))
-wrap-media-input
-wrap-media-output
-]
-
-@subsection{Split Grouped Selectors}
-
-This example splits one grouped rule into two separate rules.
-
-@examples[#:eval css-eval
-(define split-selectors-input
-  ".a, .b { background: rgb(1 2 3); }")
-(define split-selectors-output
-  (serialize-stylesheet
-   (css-split-grouped-selectors
-    (parse-css split-selectors-input))))
-split-selectors-input
-split-selectors-output
-]
-
-@subsection{Remove Duplicate Declarations}
-
-This example keeps the last duplicate declaration in the rule.
-
-@examples[#:eval css-eval
-(define dedupe-input
-  "body { color: red; color: blue; margin: 0; }")
-(define dedupe-output
-  (serialize-stylesheet
-   (css-dedupe-declarations
-    (parse-css dedupe-input))))
-dedupe-input
-dedupe-output
-]
-
-@subsection{Inspect Selector Pseudos}
-
-This example finds rules that use the pseudo selector @tt{:not}.
-
-@examples[#:eval css-eval
-(define pseudo-input
-  "a:not(.x, #y) > span:nth-child(2n+1) { color: red; }")
-(define pseudo-stylesheet
-  (parse-css pseudo-input))
-(define pseudo-rules
-  (css-find-rules-by-pseudo pseudo-stylesheet "not"))
-pseudo-input
-(length pseudo-rules)
-(map css-style-rule-selector-groups pseudo-rules)
-]
-
-@section{Reference}
-
-The remainder of this manual is the API reference, grouped by task rather than
-by source file.
-
-@subsection{Parsing and Serialization}
+@subsubsection{Parsing and Serialization}
 
 @defthing[current-css-standard symbol?]{
-The standard tag used by @racketmodname[parsers/css]. The scaffold currently
-uses @racket['current].}
+The standard tag used by @racketmodname[parsers/css]. The current public
+parser target is @racket['current].}
 
 @defproc[(make-css-parser [#:standard standard symbol? current-css-standard])
-         (input-port? . -> . any/c)]{
+         (input-port? . -> . css-stylesheet?)]{
 Constructs a port-based CSS parser.
 
 The result is a procedure of one argument, an input port. The intended use is
 to create the parser and apply it to a port containing a complete stylesheet.
 
-The current scaffold has a real parser driver and structural reader. Empty
-input, simple style rules, grouped selectors, and basic declaration values
-currently parse successfully, while broader modern CSS coverage is still under
-construction.
+The parser handles stylesheets with style rules, grouped selectors,
+declarations, comments, recovery nodes, and common at-rules.
 
 @examples[#:eval css-eval
 (css-parser? (make-css-parser))
 ]}
 
 @defproc[(parse-css [source (or/c string? input-port?)])
-         any/c]{
+         css-stylesheet?]{
 Parses CSS from a string or input port.
 
 This is the convenience entry point for most consumers. It accepts either a
 complete stylesheet string or an input port and uses the current CSS standard
 target.
 
-The current scaffold already parses a useful first slice of CSS, including
-simple style rules, grouped selectors, declarations, and the outer structure
-of common at-rules such as @litchar|{@media}|, @litchar|{@supports}|,
+The parser supports style rules, grouped selectors, declarations, comments,
+recovery nodes for malformed fragments, and the outer structure of common
+at-rules such as @litchar|{@media}|, @litchar|{@supports}|,
 @litchar|{@import}|, @litchar|{@font-face}|, and @litchar|{@keyframes}|.
 
 @examples[#:eval css-eval
@@ -440,7 +580,7 @@ of common at-rules such as @litchar|{@media}|, @litchar|{@supports}|,
 ]}
 
 @defproc[(parse-stylesheet [source (or/c string? input-port?)])
-         any/c]{
+         css-stylesheet?]{
 Alias for @racket[parse-css].}
 
 @defproc[(serialize-stylesheet [stylesheet css-stylesheet?]
@@ -472,10 +612,11 @@ preserved structurally.
          string?]{
 Alias for @racket[serialize-stylesheet].}
 
-@subsection{Rewrite Reference}
+@subsubsection{Rewrite Reference}
 
 @defproc[(css-map-declarations [stylesheet css-stylesheet?]
-                               [proc procedure?])
+                               [proc (-> css-declaration?
+                                         (or/c css-declaration? #f))])
          css-stylesheet?]{
 Rewrites declarations throughout a stylesheet.
 
@@ -485,35 +626,42 @@ stylesheet clears its preserved source string, since the original source is no
 longer an exact representation of the modified AST.}
 
 @defproc[(css-map-rules [stylesheet css-stylesheet?]
-                        [proc procedure?])
+                        [proc (-> css-style-rule?
+                                  (or/c css-style-rule?
+                                        (listof css-style-rule?)
+                                        #f))])
          css-stylesheet?]{
 Rewrites each @racket[css-style-rule?] in the stylesheet. The procedure may
 return one replacement rule, a list of replacement rules, or @racket[#f] to
 remove the rule.}
 
 @defproc[(css-map-at-rules [stylesheet css-stylesheet?]
-                           [proc procedure?])
+                           [proc (-> css-at-rule?
+                                     (or/c css-at-rule?
+                                           (listof css-at-rule?)
+                                           #f))])
          css-stylesheet?]{
 Rewrites each @racket[css-at-rule?] in the stylesheet. The procedure may
 return one replacement at-rule, a list of replacement at-rules, or @racket[#f]
 to remove the rule.}
 
 @defproc[(css-map-selectors [stylesheet css-stylesheet?]
-                            [proc procedure?])
+                            [proc (-> string? string?)])
          css-stylesheet?]{
 Rewrites each selector-group string in every style rule. The procedure receives
 one selector-group string and must return a replacement string.}
 
 @defproc[(css-map-declarations-in-selectors [stylesheet css-stylesheet?]
                                             [selector-group string?]
-                                            [proc procedure?])
+                                            [proc (-> css-declaration?
+                                                      (or/c css-declaration? #f))])
          css-stylesheet?]{
 Rewrites declarations only inside style rules whose selector groups include
 @racket[selector-group] exactly.}
 
 @defproc[(css-update-declaration-values [stylesheet css-stylesheet?]
                                         [name string?]
-                                        [updater procedure?])
+                                        [updater (-> string? string?)])
          css-stylesheet?]{
 Updates declaration values for property names that match
 @racket[name] case-insensitively. The updater is called with the raw
@@ -521,7 +669,7 @@ declaration value string and should return a replacement string.}
 
 @defproc[(css-update-declaration-values/preserve-source [stylesheet css-stylesheet?]
                                                         [name string?]
-                                                        [updater procedure?])
+                                                        [updater (-> string? string?)])
          css-stylesheet?]{
 Updates declaration values like @racket[css-update-declaration-values], but
 preserves untouched source text when the stylesheet still has original source
@@ -635,20 +783,24 @@ Renames one class selector throughout the stylesheet.}
 Prefixes each selector group with @racket[prefix].}
 
 @defproc[(css-rewrite-media-queries [stylesheet css-stylesheet?]
-                                    [proc procedure?])
+                                    [proc (-> string?
+                                              css-media-prelude-details?
+                                              string?)])
          css-stylesheet?]{
 Rewrites @litchar|{@media}| preludes. The procedure receives the raw prelude
 string and its derived details, and must return a replacement prelude string.}
 
 @defproc[(css-rewrite-supports-conditions [stylesheet css-stylesheet?]
-                                          [proc procedure?])
+                                          [proc (-> string?
+                                                    css-supports-prelude-details?
+                                                    string?)])
          css-stylesheet?]{
 Rewrites @litchar|{@supports}| preludes. The procedure receives the raw
 prelude string and its derived details, and must return a replacement prelude
 string.}
 
 @defproc[(css-rewrite-custom-properties [stylesheet css-stylesheet?]
-                                        [proc procedure?])
+                                        [proc (-> string? string?)])
          css-stylesheet?]{
 Rewrites custom-property names in both declaration names and @tt{var(...)}
 references. The procedure receives one custom-property name such as
@@ -661,7 +813,7 @@ group.}
 
 @defproc[(css-clone-rule [stylesheet css-stylesheet?]
                          [selector-group string?]
-                         [#:transform proc procedure? values])
+                         [#:transform proc (-> css-style-rule? css-style-rule?) values])
          css-stylesheet?]{
 Clones each style rule whose selector groups include @racket[selector-group].
 The optional transform procedure receives the matched rule and must return the
@@ -682,12 +834,12 @@ Inserts @racket[new-rule] after each style rule whose selector groups include
 @racket[selector-group].}
 
 @defproc[(css-remove-rules [stylesheet css-stylesheet?]
-                           [pred? procedure?])
+                           [pred? (-> css-style-rule? boolean?)])
          css-stylesheet?]{
 Removes style rules for which @racket[pred?] returns true.}
 
 @defproc[(css-remove-at-rules [stylesheet css-stylesheet?]
-                              [pred? procedure?])
+                              [pred? (-> css-at-rule? boolean?)])
          css-stylesheet?]{
 Removes at-rules for which @racket[pred?] returns true.}
 
@@ -714,7 +866,7 @@ Removes duplicate declarations within each style rule, keeping either the
 first or last occurrence.}
 
 @defproc[(css-sort-declarations [stylesheet css-stylesheet?]
-                                [#:less-than less-than procedure? string<?])
+                                [#:less-than less-than (-> string? string? boolean?) string<?])
          css-stylesheet?]{
 Sorts declarations within each style rule using the given comparator on
 declaration names.}
@@ -727,7 +879,7 @@ Renames one custom property in both declaration names and @tt{var(...)}
 references.}
 
 @defproc[(css-rewrite-var-functions [stylesheet css-stylesheet?]
-                                    [proc procedure?])
+                                    [proc (-> string? string?)])
          css-stylesheet?]{
 Rewrites custom-property names only in @tt{var(...)} references.}
 
@@ -739,23 +891,24 @@ Renames one @litchar|{@keyframes}| identifier and matching animation
 references.}
 
 @defproc[(css-rewrite-imports [stylesheet css-stylesheet?]
-                              [proc procedure?])
+                              [proc (-> string? string?)])
          css-stylesheet?]{
 Rewrites @litchar|{@import}| preludes using a callback over the raw prelude
 string.}
 
 @defproc[(css-rewrite-font-face [stylesheet css-stylesheet?]
-                                [proc procedure?])
+                                [proc (-> css-declaration?
+                                          (or/c css-declaration? #f))])
          css-stylesheet?]{
 Rewrites declarations inside @litchar|{@font-face}| blocks.}
 
 @defproc[(css-rewrite-url-values [stylesheet css-stylesheet?]
-                                 [proc procedure?])
+                                 [proc (-> string? string?)])
          css-stylesheet?]{
 Rewrites @tt{url(...)} inner text in declarations and at-rule preludes.}
 
 @defproc[(css-filter-comments [stylesheet css-stylesheet?]
-                              [pred? procedure?])
+                              [pred? (-> css-comment? boolean?)])
          css-stylesheet?]{
 Keeps only comments for which @racket[pred?] returns true.}
 
@@ -768,17 +921,17 @@ Hoists nested style rules into flat rule lists by combining selectors.}
 Lowers nesting by hoisting nested rules into flat rule lists.}
 
 @defproc[(css-rewrite-attribute-selectors [stylesheet css-stylesheet?]
-                                          [proc procedure?])
+                                          [proc (-> string? string?)])
          css-stylesheet?]{
 Rewrites raw attribute-selector text inside selector groups.}
 
 @defproc[(css-rewrite-pseudos [stylesheet css-stylesheet?]
-                              [proc procedure?])
+                              [proc (-> string? string?)])
          css-stylesheet?]{
 Rewrites raw pseudo-selector text inside selector groups.}
 
 @defproc[(css-rewrite-selector-structure [stylesheet css-stylesheet?]
-                                         [proc procedure?])
+                                         [proc (-> string? css-selector? string?)])
          css-stylesheet?]{
 Rewrites selector groups using both the raw selector-group string and the
 derived selector structure for that group.}
@@ -786,7 +939,7 @@ derived selector structure for that group.}
 @defproc[(css-update-declaration-values-in-media-feature [stylesheet css-stylesheet?]
                                                          [feature-name string?]
                                                          [property-name string?]
-                                                         [updater procedure?])
+                                                         [updater (-> string? string?)])
          css-stylesheet?]{
 Updates declaration values only inside @litchar|{@media}| rules whose derived
 feature set includes @racket[feature-name].}
@@ -794,7 +947,7 @@ feature set includes @racket[feature-name].}
 @defproc[(css-update-declaration-values-in-media-feature/preserve-source [stylesheet css-stylesheet?]
                                                                          [feature-name string?]
                                                                          [property-name string?]
-                                                                         [updater procedure?])
+                                                                         [updater (-> string? string?)])
          css-stylesheet?]{
 Updates declaration values like @racket[css-update-declaration-values-in-media-feature],
 but preserves untouched source text when possible by editing the original source
@@ -818,7 +971,7 @@ source string in place and reparsing it.}
 @defproc[(css-update-declaration-values-in-supports-feature [stylesheet css-stylesheet?]
                                                             [feature-name string?]
                                                             [property-name string?]
-                                                            [updater procedure?])
+                                                            [updater (-> string? string?)])
          css-stylesheet?]{
 Updates declaration values only inside @litchar|{@supports}| rules whose
 derived feature tests include @racket[feature-name].}
@@ -826,7 +979,7 @@ derived feature tests include @racket[feature-name].}
 @defproc[(css-update-declaration-values-in-supports-feature/preserve-source [stylesheet css-stylesheet?]
                                                                             [feature-name string?]
                                                                             [property-name string?]
-                                                                            [updater procedure?])
+                                                                            [updater (-> string? string?)])
          css-stylesheet?]{
 Updates declaration values like @racket[css-update-declaration-values-in-supports-feature],
 but preserves untouched source text when possible by editing the original
@@ -847,12 +1000,12 @@ Removes declarations like @racket[css-remove-declarations-in-supports-feature],
 but preserves untouched source text when possible by editing the original
 source string in place and reparsing it.}
 
-@subsection{Core AST And Derived Reference}
+@subsubsection{Core AST And Derived Reference}
 
 The parser is intended to return explicit AST nodes instead of ad hoc maps or
 lists.
 
-The first scaffolded AST forms are:
+The core AST forms are:
 
 @itemlist[
  @item{@racket[css-stylesheet?] for a complete stylesheet node.}
@@ -864,14 +1017,153 @@ The first scaffolded AST forms are:
  @item{@racket[css-source-span?] for preserved source span data.}
  @item{@racket[css-qualified-rule?] for a qualified rule node.}]
 
-As the parser grows, additional node types will cover declarations, at-rules,
-comments, nested rule contents, and source locations.
+Derived helper APIs provide richer selector, component-value, media-query, and
+supports-condition structures when consumers need more detail.
+
+@defstruct*[#:link-target? #f
+            css-stylesheet
+            ([rules (listof (or/c css-style-rule?
+                                   css-at-rule?
+                                   css-comment?
+                                   css-recovery?))]
+             [source (or/c string? #f)]
+             [span (or/c css-source-span? #f)])
+            #:transparent
+            #:omit-constructor]{
+Represents a complete stylesheet.
+
+The @racket[rules] field contains the top-level stylesheet nodes in source
+order. The @racket[source] field contains the original stylesheet text when it
+is available; source-preserving serializers and rewrites use this value. The
+@racket[span] field records the source extent of the stylesheet when available.}
+
+@defstruct*[#:link-target? #f
+            css-style-rule
+            ([selector-groups (listof string?)]
+             [block (listof (or/c css-declaration?
+                                   css-comment?
+                                   css-recovery?
+                                   css-style-rule?
+                                   css-at-rule?))]
+             [raw-selector string?]
+             [span (or/c css-source-span? #f)])
+            #:transparent
+            #:omit-constructor]{
+Represents an ordinary CSS style rule.
+
+The @racket[selector-groups] field contains the comma-separated selector groups
+as exact source-text strings, with surrounding selector whitespace trimmed. The
+@racket[block] field contains the rule body in source order: declarations,
+comments, recovery nodes, and any nested rule-bearing nodes the parser
+represented structurally. The @racket[raw-selector] field preserves the full
+selector prelude text before the block. The @racket[span] field records the
+rule source extent when available.}
+
+@defstruct*[#:link-target? #f
+            css-at-rule
+            ([name string?]
+             [prelude string?]
+             [block (or/c (listof (or/c css-style-rule?
+                                         css-at-rule?
+                                         css-declaration?
+                                         css-comment?
+                                         css-recovery?))
+                          #f)]
+             [span (or/c css-source-span? #f)])
+            #:transparent
+            #:omit-constructor]{
+Represents an at-rule such as @litchar|{@media}|, @litchar|{@supports}|,
+@litchar|{@import}|, @litchar|{@font-face}|, or @litchar|{@keyframes}|.
+
+The @racket[name] field contains the at-keyword, including the leading
+@litchar|{@}|. The @racket[prelude] field contains the raw prelude text between
+the at-rule name and the terminating semicolon or block. The @racket[block]
+field contains the at-rule body in source order, or @racket[#f] for at-rules
+without a block. The @racket[span] field records the at-rule source extent when
+available.}
+
+@defstruct*[#:link-target? #f
+            css-declaration
+            ([name string?]
+             [value string?]
+             [important? boolean?]
+             [span (or/c css-source-span? #f)])
+            #:transparent
+            #:omit-constructor]{
+Represents a CSS declaration.
+
+The @racket[name] field contains the property name exactly as parsed. The
+@racket[value] field contains the raw declaration value text, excluding the
+property name, colon, semicolon, and trailing @tt{!important} marker. The
+@racket[important?] field records whether the declaration was marked
+@tt{!important}. The @racket[span] field records the declaration source extent
+when available.}
+
+@defstruct*[#:link-target? #f
+            css-comment
+            ([text string?]
+             [span (or/c css-source-span? #f)])
+            #:transparent
+            #:omit-constructor]{
+Represents a preserved CSS comment.
+
+The @racket[text] field contains the raw comment text, including the
+@tt{/* ... */} delimiters. The @racket[span] field records the comment source
+extent when available.}
+
+@defstruct*[#:link-target? #f
+            css-recovery
+            ([kind symbol?]
+             [reason string?]
+             [text string?]
+             [span (or/c css-source-span? #f)]
+             [detail any/c])
+            #:transparent
+            #:omit-constructor]{
+Represents a malformed source fragment that the parser skipped while recovering
+and continuing with the surrounding stylesheet.
+
+The @racket[kind] field classifies the skipped fragment, for example
+@racket['statement] or @racket['declaration]. The @racket[reason] field
+contains a human-readable parse error message. The @racket[text] field
+contains the raw skipped source text. The @racket[span] field records the
+skipped source extent when available. The @racket[detail] field contains
+parser-specific diagnostic data for tools that want more context.}
+
+@defstruct*[#:link-target? #f
+            css-source-span
+            ([start any/c]
+             [end any/c])
+            #:transparent
+            #:omit-constructor]{
+Represents a source extent.
+
+The @racket[start] and @racket[end] fields mark the beginning and end of a
+source range. In parsed stylesheets these are parser-tools position values;
+some tests and manually constructed ASTs use exact nonnegative offsets. Treat
+the values as source-location data rather than CSS syntax.}
+
+@defstruct*[#:link-target? #f
+            css-qualified-rule
+            ([prelude list?]
+             [block list?])
+            #:transparent
+            #:omit-constructor]{
+Represents a generic qualified rule.
+
+The @racket[prelude] field contains the component-value prelude before the
+block. The @racket[block] field contains the rule body representation. Most
+tooling should prefer the more specific @tt{css-style-rule} struct when
+working with ordinary style rules.}
 
 @defproc[(css-stylesheet? [v any/c]) boolean?]{
 Recognizes stylesheet AST nodes.}
 
 @defproc[(css-stylesheet-rules [stylesheet css-stylesheet?])
-         list?]{
+         (listof (or/c css-style-rule?
+                       css-at-rule?
+                       css-comment?
+                       css-recovery?))]{
 Returns the stylesheet’s rule list.}
 
 @defproc[(css-stylesheet-source [stylesheet css-stylesheet?])
@@ -887,11 +1179,15 @@ Recognizes source span values.}
 
 @defproc[(css-source-span-start [span css-source-span?])
          any/c]{
-Returns the start component of a source span.}
+Returns the start source-location value of a source span. Parsed stylesheets
+use parser-tools position values; manually constructed spans may use exact
+nonnegative offsets.}
 
 @defproc[(css-source-span-end [span css-source-span?])
          any/c]{
-Returns the end component of a source span.}
+Returns the end source-location value of a source span. Parsed stylesheets use
+parser-tools position values; manually constructed spans may use exact
+nonnegative offsets.}
 
 @defproc[(css-comment? [v any/c]) boolean?]{
 Recognizes comment AST nodes.}
@@ -934,11 +1230,11 @@ parse error.}
 Recognizes style-rule AST nodes.}
 
 @defproc[(css-style-rule-selector-groups [rule css-style-rule?])
-         list?]{
+         (listof string?)]{
 Returns the selector-group representation for a style rule.}
 
 @defproc[(css-style-rule-selectors [rule css-style-rule?])
-         list?]{
+         (listof css-selector?)]{
 Returns selector nodes derived from the rule’s selector groups.}
 
 @defproc[(css-selector? [v any/c]) boolean?]{
@@ -953,33 +1249,124 @@ Returns the selector text.}
 Returns the selector span when available.}
 
 @defproc[(css-selector-parts [selector css-selector?])
-         list?]{
+         (listof (or/c css-selector-type?
+                       css-selector-namespaced-type?
+                       css-selector-class?
+                       css-selector-id?
+                       css-selector-attribute?
+                       css-selector-pseudo?
+                       css-selector-universal?
+                       css-selector-namespaced-universal?
+                       css-selector-combinator?))]{
 Returns the derived selector parts for one selector group.}
 
 @defproc[(css-selector-compounds [selector css-selector?])
-         list?]{
+         (listof (or/c css-selector-compound?
+                       css-selector-combinator?))]{
 Returns compound-selector groupings derived from one selector group.}
 
 @defproc[(css-selector-compound? [v any/c]) boolean?]{
 Recognizes compound selector nodes.}
 
+@defproc[(css-selector-compound-items [compound css-selector-compound?])
+         list?]{
+Returns the selector parts in a compound selector.}
+
+@defproc[(css-selector-compound-span [compound css-selector-compound?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a compound selector when available.}
+
 @defproc[(css-selector-combinator? [v any/c]) boolean?]{
 Recognizes selector combinator nodes.}
+
+@defproc[(css-selector-combinator-text [combinator css-selector-combinator?])
+         string?]{
+Returns the combinator text, such as @tt{>}, @tt{+}, @tt{~}, or a space.}
+
+@defproc[(css-selector-combinator-span [combinator css-selector-combinator?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a combinator when available.}
 
 @defproc[(css-selector-type? [v any/c]) boolean?]{
 Recognizes type selector nodes.}
 
+@defproc[(css-selector-type-name [selector css-selector-type?])
+         string?]{
+Returns the type selector name.}
+
+@defproc[(css-selector-type-span [selector css-selector-type?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a type selector when available.}
+
 @defproc[(css-selector-namespaced-type? [v any/c]) boolean?]{
 Recognizes namespace-qualified type selector nodes such as @tt{svg|rect}.}
+
+@defproc[(css-selector-namespaced-type-namespace
+          [selector css-selector-namespaced-type?])
+         string?]{
+Returns the namespace prefix for a namespace-qualified type selector.}
+
+@defproc[(css-selector-namespaced-type-name
+          [selector css-selector-namespaced-type?])
+         string?]{
+Returns the local type name for a namespace-qualified type selector.}
+
+@defproc[(css-selector-namespaced-type-span
+          [selector css-selector-namespaced-type?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a namespace-qualified type selector when
+available.}
 
 @defproc[(css-selector-class? [v any/c]) boolean?]{
 Recognizes class selector nodes.}
 
+@defproc[(css-selector-class-name [selector css-selector-class?])
+         string?]{
+Returns the class name without the leading dot.}
+
+@defproc[(css-selector-class-span [selector css-selector-class?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a class selector when available.}
+
 @defproc[(css-selector-id? [v any/c]) boolean?]{
 Recognizes id selector nodes.}
 
+@defproc[(css-selector-id-name [selector css-selector-id?])
+         string?]{
+Returns the ID name without the leading hash.}
+
+@defproc[(css-selector-id-span [selector css-selector-id?])
+         (or/c css-source-span? #f)]{
+Returns the source span for an ID selector when available.}
+
 @defproc[(css-selector-attribute? [v any/c]) boolean?]{
 Recognizes attribute selector nodes.}
+
+@defproc[(css-selector-attribute-name [attribute css-selector-attribute?])
+         string?]{
+Returns the raw attribute name text.}
+
+@defproc[(css-selector-attribute-matcher [attribute css-selector-attribute?])
+         (or/c string? #f)]{
+Returns the attribute matcher, such as @tt{=}, @tt{~=}, or @tt{^=}, when one
+is present.}
+
+@defproc[(css-selector-attribute-value [attribute css-selector-attribute?])
+         (or/c string? #f)]{
+Returns the raw attribute value text when one is present.}
+
+@defproc[(css-selector-attribute-modifier [attribute css-selector-attribute?])
+         (or/c string? #f)]{
+Returns the attribute selector modifier, such as @tt{i} or @tt{s}, when one is
+present.}
+
+@defproc[(css-selector-attribute-text [attribute css-selector-attribute?])
+         string?]{
+Returns the full raw attribute selector text.}
+
+@defproc[(css-selector-attribute-span [attribute css-selector-attribute?])
+         (or/c css-source-span? #f)]{
+Returns the source span for an attribute selector when available.}
 
 @defproc[(css-selector-attribute-derived-details [attribute css-selector-attribute?])
          css-selector-attribute-details?]{
@@ -1000,20 +1387,82 @@ Returns the optional namespace prefix for an attribute selector, such as
          string?]{
 Returns the local attribute name.}
 
+@defproc[(css-selector-attribute-details-matcher [details css-selector-attribute-details?])
+         (or/c string? #f)]{
+Returns the attribute matcher when one is present.}
+
 @defproc[(css-selector-attribute-details-value [details css-selector-attribute-details?])
          (or/c css-selector-attribute-identifier-value?
                css-selector-attribute-string-value?
                #f)]{
 Returns the typed attribute value when one is present.}
 
+@defproc[(css-selector-attribute-details-modifier [details css-selector-attribute-details?])
+         (or/c string? #f)]{
+Returns the attribute selector modifier when one is present.}
+
+@defproc[(css-selector-attribute-details-text [details css-selector-attribute-details?])
+         string?]{
+Returns the full raw attribute selector text.}
+
+@defproc[(css-selector-attribute-details-span [details css-selector-attribute-details?])
+         (or/c css-source-span? #f)]{
+Returns the source span for derived attribute details when available.}
+
 @defproc[(css-selector-attribute-identifier-value? [v any/c]) boolean?]{
 Recognizes identifier-valued attribute selectors such as @tt{[href=button]}.}
+
+@defproc[(css-selector-attribute-identifier-value-text
+          [value css-selector-attribute-identifier-value?])
+         string?]{
+Returns the raw identifier value text.}
+
+@defproc[(css-selector-attribute-identifier-value-value
+          [value css-selector-attribute-identifier-value?])
+         string?]{
+Returns the decoded identifier value.}
+
+@defproc[(css-selector-attribute-identifier-value-span
+          [value css-selector-attribute-identifier-value?])
+         (or/c css-source-span? #f)]{
+Returns the source span for an identifier attribute value when available.}
 
 @defproc[(css-selector-attribute-string-value? [v any/c]) boolean?]{
 Recognizes string-valued attribute selectors such as @tt{[href=\"button\"]}.}
 
+@defproc[(css-selector-attribute-string-value-text
+          [value css-selector-attribute-string-value?])
+         string?]{
+Returns the raw string value text, including quotes.}
+
+@defproc[(css-selector-attribute-string-value-value
+          [value css-selector-attribute-string-value?])
+         string?]{
+Returns the decoded string value.}
+
+@defproc[(css-selector-attribute-string-value-span
+          [value css-selector-attribute-string-value?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a string attribute value when available.}
+
 @defproc[(css-selector-pseudo? [v any/c]) boolean?]{
 Recognizes pseudo-class and pseudo-element selector nodes.}
+
+@defproc[(css-selector-pseudo-name [pseudo css-selector-pseudo?])
+         string?]{
+Returns the pseudo selector name without leading colon characters.}
+
+@defproc[(css-selector-pseudo-element? [pseudo css-selector-pseudo?])
+         boolean?]{
+Reports whether the pseudo selector was written as a pseudo-element.}
+
+@defproc[(css-selector-pseudo-text [pseudo css-selector-pseudo?])
+         string?]{
+Returns the full raw pseudo selector text.}
+
+@defproc[(css-selector-pseudo-span [pseudo css-selector-pseudo?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a pseudo selector when available.}
 
 For selector-like functional pseudos such as @tt{:not(...)}, @tt{:is(...)},
 @tt{:where(...)}, and @tt{:has(...)}, the pseudo arguments are exposed as
@@ -1051,9 +1500,25 @@ Recognizes explicit @tt{nth-*} pseudo arguments, including an optional
          list?]{
 Returns the parsed selector arguments for a selector-list pseudo.}
 
+@defproc[(css-selector-pseudo-selector-list-text [args css-selector-pseudo-selector-list?])
+         string?]{
+Returns the raw selector-list argument text.}
+
+@defproc[(css-selector-pseudo-selector-list-span [args css-selector-pseudo-selector-list?])
+         (or/c css-source-span? #f)]{
+Returns the source span for selector-list pseudo arguments when available.}
+
 @defproc[(css-selector-pseudo-value-list-values [args css-selector-pseudo-value-list?])
          list?]{
 Returns the parsed component-value arguments for a value-oriented pseudo.}
+
+@defproc[(css-selector-pseudo-value-list-text [args css-selector-pseudo-value-list?])
+         string?]{
+Returns the raw component-value argument text.}
+
+@defproc[(css-selector-pseudo-value-list-span [args css-selector-pseudo-value-list?])
+         (or/c css-source-span? #f)]{
+Returns the source span for value-list pseudo arguments when available.}
 
 For the @tt{nth-*} family, @tt{an+b} arguments such as @tt{2n+1},
 @tt{odd}, and @tt{-n+6} are exposed as typed
@@ -1071,32 +1536,91 @@ Returns the parsed selector list from an optional @tt{of} clause.
 For example, @tt{:nth-child(2n+1 of .item, #main)} exposes @tt{.item} and
 @tt{#main} here.}
 
+@defproc[(css-selector-pseudo-nth-arguments-text [args css-selector-pseudo-nth-arguments?])
+         string?]{
+Returns the raw @tt{nth-*} argument text.}
+
+@defproc[(css-selector-pseudo-nth-arguments-span [args css-selector-pseudo-nth-arguments?])
+         (or/c css-source-span? #f)]{
+Returns the source span for @tt{nth-*} arguments when available.}
+
 @defproc[(css-selector-pseudo-identifier-list? [v any/c]) boolean?]{
 Recognizes identifier-like pseudo arguments such as those used by
 @tt{:lang(...)} and @tt{:dir(...)}.}
 
+@defproc[(css-selector-pseudo-identifier-list-values
+          [args css-selector-pseudo-identifier-list?])
+         (listof css-selector-pseudo-identifier?)]{
+Returns the identifier argument nodes.}
+
+@defproc[(css-selector-pseudo-identifier-list-text
+          [args css-selector-pseudo-identifier-list?])
+         string?]{
+Returns the raw identifier-list argument text.}
+
+@defproc[(css-selector-pseudo-identifier-list-span
+          [args css-selector-pseudo-identifier-list?])
+         (or/c css-source-span? #f)]{
+Returns the source span for identifier-list pseudo arguments when available.}
+
 @defproc[(css-selector-pseudo-identifier? [v any/c]) boolean?]{
 Recognizes one identifier-like pseudo argument.}
+
+@defproc[(css-selector-pseudo-identifier-text [v css-selector-pseudo-identifier?])
+         string?]{
+Returns the raw identifier argument text.}
 
 @defproc[(css-selector-pseudo-identifier-value [v css-selector-pseudo-identifier?])
          string?]{
 Returns the identifier-like pseudo argument text, such as @tt{en-US} or
 @tt{rtl}.}
 
+@defproc[(css-selector-pseudo-identifier-span [v css-selector-pseudo-identifier?])
+         (or/c css-source-span? #f)]{
+Returns the source span for an identifier pseudo argument when available.}
+
 @defproc[(css-selector-universal? [v any/c]) boolean?]{
 Recognizes universal selector nodes.}
+
+@defproc[(css-selector-universal-text [selector css-selector-universal?])
+         string?]{
+Returns the raw universal selector text.}
+
+@defproc[(css-selector-universal-span [selector css-selector-universal?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a universal selector when available.}
 
 @defproc[(css-selector-namespaced-universal? [v any/c]) boolean?]{
 Recognizes namespace-qualified universal selector nodes such as @tt{*|*} or
 @tt{foo|*}.}
 
+@defproc[(css-selector-namespaced-universal-namespace
+          [selector css-selector-namespaced-universal?])
+         string?]{
+Returns the namespace prefix for a namespace-qualified universal selector.}
+
+@defproc[(css-selector-namespaced-universal-text
+          [selector css-selector-namespaced-universal?])
+         string?]{
+Returns the raw namespace-qualified universal selector text.}
+
+@defproc[(css-selector-namespaced-universal-span
+          [selector css-selector-namespaced-universal?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a namespace-qualified universal selector when
+available.}
+
 @defproc[(css-style-rule-block [rule css-style-rule?])
-         any/c]{
+         (listof (or/c css-declaration?
+                       css-comment?
+                       css-recovery?
+                       css-style-rule?
+                       css-at-rule?))]{
 Returns the rule block.}
 
 @defproc[(css-style-rule-raw-selector [rule css-style-rule?])
-         any/c]{
-Returns the raw selector text preserved by the style rule scaffold.}
+         string?]{
+Returns the raw selector text preserved by the style rule.}
 
 @defproc[(css-style-rule-span [rule css-style-rule?])
          (or/c css-source-span? #f)]{
@@ -1106,19 +1630,30 @@ Returns the source span for a style rule when available.}
 Recognizes at-rule AST nodes.}
 
 @defproc[(css-at-rule-name [rule css-at-rule?])
-         any/c]{
+         string?]{
 Returns the at-rule name, such as @racket["@media"].}
 
 @defproc[(css-at-rule-prelude [rule css-at-rule?])
-         any/c]{
+         string?]{
 Returns the at-rule prelude representation.}
 
 @defproc[(css-at-rule-prelude-values [rule css-at-rule?])
-         list?]{
+         (listof (or/c css-component-token?
+                       css-component-an-plus-b?
+                       css-component-number?
+                       css-component-percentage?
+                       css-component-dimension?
+                       css-component-string?
+                       css-component-hash?
+                       css-component-url?
+                       css-component-function?
+                       css-component-block?))]{
 Returns a lightweight component-value view of the at-rule prelude.}
 
 @defproc[(css-at-rule-prelude-derived-details [rule css-at-rule?])
-         any/c]{
+         (or/c css-media-prelude-details?
+               css-supports-prelude-details?
+               list?)]{
 Returns a richer derived prelude view for recognized at-rules.
 
 Currently this provides structured results for @litchar|{@media}| and
@@ -1128,12 +1663,55 @@ list.}
 @defproc[(css-media-prelude-details? [v any/c]) boolean?]{
 Recognizes derived @litchar|{@media}| prelude nodes.}
 
+@defproc[(css-media-prelude-details-queries [details css-media-prelude-details?])
+         (listof css-media-query?)]{
+Returns the derived media queries in a @litchar|{@media}| prelude.}
+
+@defproc[(css-media-prelude-details-text [details css-media-prelude-details?])
+         string?]{
+Returns the raw @litchar|{@media}| prelude text.}
+
+@defproc[(css-media-prelude-details-span [details css-media-prelude-details?])
+         (or/c css-source-span? #f)]{
+Returns the source span for derived media prelude details when available.}
+
 @defproc[(css-media-query? [v any/c]) boolean?]{
 Recognizes one derived media query entry.}
+
+@defproc[(css-media-query-modifier [query css-media-query?])
+         (or/c string? #f)]{
+Returns the media query modifier, such as @tt{not} or @tt{only}, when one is
+present.}
+
+@defproc[(css-media-query-media-type [query css-media-query?])
+         (or/c string? #f)]{
+Returns the media type, such as @tt{screen}, when one is present.}
+
+@defproc[(css-media-query-features [query css-media-query?])
+         (listof (or/c css-media-feature?
+                       css-media-feature-expression?
+                       css-media-feature-range?))]{
+Returns the media feature fragments in the query.}
+
+@defproc[(css-media-query-text [query css-media-query?])
+         string?]{
+Returns the raw media query text.}
+
+@defproc[(css-media-query-span [query css-media-query?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a media query when available.}
 
 @defproc[(css-media-feature? [v any/c]) boolean?]{
 Recognizes one derived media feature fragment such as
 @tt{(width >= 40rem)}.}
+
+@defproc[(css-media-feature-text [feature css-media-feature?])
+         string?]{
+Returns the raw media feature text.}
+
+@defproc[(css-media-feature-span [feature css-media-feature?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a media feature when available.}
 
 @defproc[(css-media-feature-expression? [v any/c]) boolean?]{
 Recognizes a typed media feature expression such as
@@ -1151,6 +1729,14 @@ Returns the comparison operator, such as @tt{:} or @tt{>=}.}
          string?]{
 Returns the raw media feature value text.}
 
+@defproc[(css-media-feature-expression-text [feature css-media-feature-expression?])
+         string?]{
+Returns the raw media feature expression text.}
+
+@defproc[(css-media-feature-expression-span [feature css-media-feature-expression?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a media feature expression when available.}
+
 @defproc[(css-media-feature-range? [v any/c]) boolean?]{
 Recognizes a typed chained media range such as
 @tt{(20rem <= width <= 60rem)}.}
@@ -1163,18 +1749,64 @@ Returns the media feature name for a chained range.}
          string?]{
 Returns the lower bound text for a chained range.}
 
+@defproc[(css-media-feature-range-lower-operator [feature css-media-feature-range?])
+         string?]{
+Returns the lower comparison operator for a chained range.}
+
+@defproc[(css-media-feature-range-upper-operator [feature css-media-feature-range?])
+         string?]{
+Returns the upper comparison operator for a chained range.}
+
 @defproc[(css-media-feature-range-upper [feature css-media-feature-range?])
          string?]{
 Returns the upper bound text for a chained range.}
 
+@defproc[(css-media-feature-range-text [feature css-media-feature-range?])
+         string?]{
+Returns the raw chained range text.}
+
+@defproc[(css-media-feature-range-span [feature css-media-feature-range?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a chained media range when available.}
+
 @defproc[(css-supports-prelude-details? [v any/c]) boolean?]{
 Recognizes derived @litchar|{@supports}| prelude nodes.}
+
+@defproc[(css-supports-prelude-details-conditions
+          [details css-supports-prelude-details?])
+         (listof css-supports-condition?)]{
+Returns the top-level derived supports conditions.}
+
+@defproc[(css-supports-prelude-details-text [details css-supports-prelude-details?])
+         string?]{
+Returns the raw @litchar|{@supports}| prelude text.}
+
+@defproc[(css-supports-prelude-details-span [details css-supports-prelude-details?])
+         (or/c css-source-span? #f)]{
+Returns the source span for derived supports prelude details when available.}
 
 @defproc[(css-supports-condition? [v any/c]) boolean?]{
 Recognizes one derived supports-condition node.
 
 The current condition kinds include @racket['feature], @racket['not],
 @racket['and], @racket['or], and @racket['unknown].}
+
+@defproc[(css-supports-condition-kind [condition css-supports-condition?])
+         symbol?]{
+Returns the condition kind, such as @racket['feature], @racket['not],
+@racket['and], @racket['or], or @racket['unknown].}
+
+@defproc[(css-supports-condition-text [condition css-supports-condition?])
+         string?]{
+Returns the raw supports condition text.}
+
+@defproc[(css-supports-condition-arguments [condition css-supports-condition?])
+         list?]{
+Returns child conditions or feature nodes for this supports condition.}
+
+@defproc[(css-supports-condition-span [condition css-supports-condition?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a supports condition when available.}
 
 @defproc[(css-supports-feature? [v any/c]) boolean?]{
 Recognizes one typed supports feature test such as
@@ -1188,8 +1820,21 @@ Returns the feature-test name, such as @tt{display}.}
          string?]{
 Returns the raw feature-test value text, such as @tt{grid}.}
 
+@defproc[(css-supports-feature-text [feature css-supports-feature?])
+         string?]{
+Returns the raw supports feature-test text.}
+
+@defproc[(css-supports-feature-span [feature css-supports-feature?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a supports feature when available.}
+
 @defproc[(css-at-rule-block [rule css-at-rule?])
-         any/c]{
+         (or/c (listof (or/c css-style-rule?
+                              css-at-rule?
+                              css-declaration?
+                              css-comment?
+                              css-recovery?))
+               #f)]{
 Returns the at-rule body or block representation.}
 
 @defproc[(css-at-rule-span [rule css-at-rule?])
@@ -1200,15 +1845,24 @@ Returns the source span for an at-rule when available.}
 Recognizes declaration AST nodes.}
 
 @defproc[(css-declaration-name [declaration css-declaration?])
-         any/c]{
+         string?]{
 Returns the declaration property name.}
 
 @defproc[(css-declaration-value [declaration css-declaration?])
-         any/c]{
+         string?]{
 Returns the declaration value representation.}
 
 @defproc[(css-declaration-component-values [declaration css-declaration?])
-         list?]{
+         (listof (or/c css-component-token?
+                       css-component-an-plus-b?
+                       css-component-number?
+                       css-component-percentage?
+                       css-component-dimension?
+                       css-component-string?
+                       css-component-hash?
+                       css-component-url?
+                       css-component-function?
+                       css-component-block?))]{
 Returns a lightweight component-value view of the declaration value.}
 
 @defproc[(css-declaration-important? [declaration css-declaration?])
@@ -1223,19 +1877,30 @@ Returns the source span for a declaration when available.}
 Recognizes qualified-rule AST nodes.}
 
 @defproc[(css-qualified-rule-prelude [rule css-qualified-rule?])
-         any/c]{
-Returns the rule prelude. For style rules, this will eventually correspond to
-the selector portion before the block.}
+         list?]{
+Returns the rule prelude.}
 
 @defproc[(css-qualified-rule-block [rule css-qualified-rule?])
-         any/c]{
+         list?]{
 Returns the block part of a qualified rule.}
 
 @defproc[(css-component-token? [v any/c]) boolean?]{
 Recognizes simple component token nodes.}
 
+@defproc[(css-component-token-text [token css-component-token?])
+         string?]{
+Returns the raw component token text.}
+
+@defproc[(css-component-token-span [token css-component-token?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a component token when available.}
+
 @defproc[(css-component-an-plus-b? [v any/c]) boolean?]{
 Recognizes parsed @tt{an+b} component nodes used by the @tt{nth-*} pseudos.}
+
+@defproc[(css-component-an-plus-b-text [v css-component-an-plus-b?])
+         string?]{
+Returns the raw @tt{an+b} text.}
 
 @defproc[(css-component-an-plus-b-a [v css-component-an-plus-b?]) integer?]{
 Returns the @tt{a} coefficient from an @tt{an+b} node.}
@@ -1243,40 +1908,153 @@ Returns the @tt{a} coefficient from an @tt{an+b} node.}
 @defproc[(css-component-an-plus-b-b [v css-component-an-plus-b?]) integer?]{
 Returns the @tt{b} offset from an @tt{an+b} node.}
 
+@defproc[(css-component-an-plus-b-span [v css-component-an-plus-b?])
+         (or/c css-source-span? #f)]{
+Returns the source span for an @tt{an+b} component when available.}
+
 @defproc[(css-component-number? [v any/c]) boolean?]{
 Recognizes numeric component nodes.}
+
+@defproc[(css-component-number-text [v css-component-number?])
+         string?]{
+Returns the raw number text.}
+
+@defproc[(css-component-number-value [v css-component-number?])
+         number?]{
+Returns the parsed numeric value.}
+
+@defproc[(css-component-number-span [v css-component-number?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a number component when available.}
 
 @defproc[(css-component-percentage? [v any/c]) boolean?]{
 Recognizes percentage component nodes.}
 
+@defproc[(css-component-percentage-text [v css-component-percentage?])
+         string?]{
+Returns the raw percentage text.}
+
+@defproc[(css-component-percentage-value [v css-component-percentage?])
+         number?]{
+Returns the parsed percentage number without the trailing percent sign.}
+
+@defproc[(css-component-percentage-span [v css-component-percentage?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a percentage component when available.}
+
 @defproc[(css-component-dimension? [v any/c]) boolean?]{
 Recognizes dimension component nodes such as @tt{10px}.}
+
+@defproc[(css-component-dimension-text [v css-component-dimension?])
+         string?]{
+Returns the raw dimension text.}
+
+@defproc[(css-component-dimension-value [v css-component-dimension?])
+         number?]{
+Returns the parsed numeric value of a dimension.}
+
+@defproc[(css-component-dimension-unit [v css-component-dimension?])
+         string?]{
+Returns the dimension unit text, such as @tt{px} or @tt{rem}.}
+
+@defproc[(css-component-dimension-span [v css-component-dimension?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a dimension component when available.}
 
 @defproc[(css-component-string? [v any/c]) boolean?]{
 Recognizes string component nodes.}
 
+@defproc[(css-component-string-text [v css-component-string?])
+         string?]{
+Returns the raw string token text, including quotes.}
+
+@defproc[(css-component-string-value [v css-component-string?])
+         string?]{
+Returns the decoded string value.}
+
+@defproc[(css-component-string-span [v css-component-string?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a string component when available.}
+
 @defproc[(css-component-hash? [v any/c]) boolean?]{
 Recognizes hash component nodes such as @tt{#fff}.}
+
+@defproc[(css-component-hash-text [v css-component-hash?])
+         string?]{
+Returns the raw hash token text, including the leading hash.}
+
+@defproc[(css-component-hash-value [v css-component-hash?])
+         string?]{
+Returns the hash value without the leading hash.}
+
+@defproc[(css-component-hash-span [v css-component-hash?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a hash component when available.}
 
 @defproc[(css-component-url? [v any/c]) boolean?]{
 Recognizes @tt{url(...)} component nodes.}
 
+@defproc[(css-component-url-text [v css-component-url?])
+         string?]{
+Returns the raw @tt{url(...)} text.}
+
+@defproc[(css-component-url-value [v css-component-url?])
+         string?]{
+Returns the URL argument text.}
+
+@defproc[(css-component-url-span [v css-component-url?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a URL component when available.}
+
 @defproc[(css-component-function? [v any/c]) boolean?]{
 Recognizes function component nodes.}
+
+@defproc[(css-component-function-name [v css-component-function?])
+         string?]{
+Returns the function name, such as @tt{rgb}, @tt{calc}, or @tt{var}.}
+
+@defproc[(css-component-function-arguments [v css-component-function?])
+         list?]{
+Returns the component values inside the function argument list.}
+
+@defproc[(css-component-function-text [v css-component-function?])
+         string?]{
+Returns the full raw function text, including the function name and
+parentheses.}
+
+@defproc[(css-component-function-span [v css-component-function?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a function component when available.}
 
 @defproc[(css-component-block? [v any/c]) boolean?]{
 Recognizes simple block component nodes.}
 
-@subsection{Query And Recovery Reference}
+@defproc[(css-component-block-delimiter [v css-component-block?])
+         char?]{
+Returns the opening delimiter character for the block.}
+
+@defproc[(css-component-block-values [v css-component-block?])
+         list?]{
+Returns the component values inside the block.}
+
+@defproc[(css-component-block-text [v css-component-block?])
+         string?]{
+Returns the raw block text, including delimiters.}
+
+@defproc[(css-component-block-span [v css-component-block?])
+         (or/c css-source-span? #f)]{
+Returns the source span for a block component when available.}
+
+@subsubsection{Query And Recovery Reference}
 
 @defproc[(css-flatten-rules [stylesheet css-stylesheet?])
-         list?]{
+         (listof (or/c css-style-rule? css-at-rule?))]{
 Returns a pre-order list of rules and at-rules, recursively flattening nested
 rule-bearing at-rules while skipping comments.}
 
 @defproc[(css-find-rules-by-selector-group [stylesheet css-stylesheet?]
                                            [selector-group string?])
-         list?]{
+         (listof css-style-rule?)]{
 Finds style rules whose selector groups include @racket[selector-group]
 exactly.
 
@@ -1285,7 +2063,7 @@ same way as @racket[css-flatten-rules].}
 
 @defproc[(css-find-rules-by-raw-selector [stylesheet css-stylesheet?]
                                          [raw-selector string?])
-         list?]{
+         (listof css-style-rule?)]{
 Finds style rules whose raw selector text exactly matches
 @racket[raw-selector].
 
@@ -1296,7 +2074,7 @@ The search preserves source order and uses the same nested-rule flattening as
           [stylesheet css-stylesheet?]
           [selector-group string?]
           [property-name (or/c string? #f) #f])
-         list?]{
+         (listof css-declaration?)]{
 Finds declarations in rules whose selector groups include
 @racket[selector-group] exactly.
 
@@ -1307,7 +2085,7 @@ result is filtered case-insensitively by property name.}
           [stylesheet css-stylesheet?]
           [selector-groups (listof string?)]
           [property-name (or/c string? #f) #f])
-         list?]{
+         (listof css-declaration?)]{
 Finds declarations in rules whose selector groups include any string from
 @racket[selector-groups] exactly.
 
@@ -1320,7 +2098,7 @@ case-insensitively by property name.}
 @defproc[(css-collect-custom-properties-in-selector-group
           [stylesheet css-stylesheet?]
           [selector-group string?])
-         hash?]{
+         (hash/c string? string?)]{
 Collects custom-property declarations from rules whose selector groups include
 @racket[selector-group] exactly.
 
@@ -1330,7 +2108,7 @@ earlier ones in the returned hash.}
 @defproc[(css-collect-custom-properties-in-selector-groups
           [stylesheet css-stylesheet?]
           [selector-groups (listof string?)])
-         hash?]{
+         (hash/c string? string?)]{
 Collects custom-property declarations from rules whose selector groups include
 any string from @racket[selector-groups] exactly.
 
@@ -1343,9 +2121,11 @@ at most once even if it matches more than one requested selector group.}
           [stylesheet css-stylesheet?]
           [selector-group string?]
           [#:resolve-vars? resolve-vars? boolean? #f]
-          [#:defaults defaults (or/c hash? #f) #f]
+          [#:defaults defaults (or/c (hash/c string? string?) #f) #f]
           [#:trace? trace? boolean? #f])
-         any]{
+         (or/c (hash/c string? string?)
+               (values/c (hash/c string? string?)
+                         css-compute-style-trace?))]{
 Computes a reduced tooling-oriented style result for one exact
 @racket[selector-group].
 
@@ -1381,10 +2161,12 @@ the computed hash and a @racket[css-compute-style-trace?] struct.}
 @defproc[(css-compute-custom-properties-for-selector-group
           [stylesheet css-stylesheet?]
           [selector-group string?]
-          [#:defaults defaults (or/c hash? #f) #f]
+          [#:defaults defaults (or/c (hash/c string? string?) #f) #f]
           [#:resolve-vars? resolve-vars? boolean? #f]
           [#:trace? trace? boolean? #f])
-         any]{
+         (or/c (hash/c string? string?)
+               (values/c (hash/c string? string?)
+                         css-compute-style-trace?))]{
 Computes the final custom-property environment for one exact
 @racket[selector-group].
 
@@ -1407,18 +2189,123 @@ the computed hash and a @racket[css-compute-style-trace?] struct.}
 Recognizes trace payloads returned by the computed-style helpers when
 @racket[#:trace? #t] is requested.}
 
+@defproc[(css-compute-style-trace-selector-group
+          [trace css-compute-style-trace?])
+         string?]{
+Returns the exact selector-group target used for the computation.}
+
 @defproc[(css-compute-style-trace-matched-rules
           [trace css-compute-style-trace?])
-         list?]{
+         (listof css-compute-matched-rule?)]{
 Returns the matched-rule records considered for the exact selector-group
 target. Each entry records the selector group, specificity, source order, and
 style rule.}
 
 @defproc[(css-compute-style-trace-property-results
           [trace css-compute-style-trace?])
-         list?]{
+         (listof css-compute-property-result?)]{
 Returns per-property winner-selection records for standard properties. Each
 result includes the considered candidates and the winning candidate.}
+
+@defproc[(css-compute-style-trace-custom-property-results
+          [trace css-compute-style-trace?])
+         (listof css-compute-property-result?)]{
+Returns per-property winner-selection records for custom properties.}
+
+@defproc[(css-compute-style-trace-var-resolutions
+          [trace css-compute-style-trace?])
+         (listof css-compute-var-resolution?)]{
+Returns variable-resolution records describing resolved values, referenced
+custom properties, and whether cycle handling was encountered.}
+
+@defproc[(css-compute-matched-rule? [v any/c])
+         boolean?]{
+Recognizes trace entries for style rules that matched the exact selector-group
+target.}
+
+@defproc[(css-compute-matched-rule-selector-group
+          [matched-rule css-compute-matched-rule?])
+         string?]{
+Returns the matched selector-group string.}
+
+@defproc[(css-compute-matched-rule-specificity
+          [matched-rule css-compute-matched-rule?])
+         (list/c exact-nonnegative-integer?
+                 exact-nonnegative-integer?
+                 exact-nonnegative-integer?)]{
+Returns the selector specificity tuple as @tt{(ids classes types)}.}
+
+@defproc[(css-compute-matched-rule-source-order
+          [matched-rule css-compute-matched-rule?])
+         exact-nonnegative-integer?]{
+Returns the source-order index used as the final winner-selection tie-breaker.}
+
+@defproc[(css-compute-matched-rule-rule
+          [matched-rule css-compute-matched-rule?])
+         css-style-rule?]{
+Returns the underlying matched style rule.}
+
+@defproc[(css-compute-property-result? [v any/c])
+         boolean?]{
+Recognizes trace entries for one computed property name.}
+
+@defproc[(css-compute-property-result-name
+          [result css-compute-property-result?])
+         string?]{
+Returns the normalized property name for the result.}
+
+@defproc[(css-compute-property-result-candidates
+          [result css-compute-property-result?])
+         (listof css-compute-candidate?)]{
+Returns the authored or shorthand-expanded candidates considered for this
+property.}
+
+@defproc[(css-compute-property-result-winner
+          [result css-compute-property-result?])
+         css-compute-candidate?]{
+Returns the candidate that won by importance, specificity, and source order.}
+
+@defproc[(css-compute-candidate? [v any/c])
+         boolean?]{
+Recognizes one declaration candidate considered by the reduced computed-style
+winner selection.}
+
+@defproc[(css-compute-candidate-name
+          [candidate css-compute-candidate?])
+         string?]{
+Returns the property name being assigned by this candidate.}
+
+@defproc[(css-compute-candidate-value
+          [candidate css-compute-candidate?])
+         string?]{
+Returns the raw declaration value for this candidate.}
+
+@defproc[(css-compute-candidate-important?
+          [candidate css-compute-candidate?])
+         boolean?]{
+Reports whether the source declaration was marked @tt{!important}.}
+
+@defproc[(css-compute-candidate-specificity
+          [candidate css-compute-candidate?])
+         (list/c exact-nonnegative-integer?
+                 exact-nonnegative-integer?
+                 exact-nonnegative-integer?)]{
+Returns the selector specificity tuple associated with this candidate.}
+
+@defproc[(css-compute-candidate-source-order
+          [candidate css-compute-candidate?])
+         exact-nonnegative-integer?]{
+Returns the source-order index associated with this candidate.}
+
+@defproc[(css-compute-candidate-declaration
+          [candidate css-compute-candidate?])
+         css-declaration?]{
+Returns the authored declaration that produced this candidate.}
+
+@defproc[(css-compute-candidate-matched-rule
+          [candidate css-compute-candidate?])
+         css-compute-matched-rule?]{
+Returns the matched-rule trace entry associated with this candidate.}
 
 @defproc[(css-compute-candidate-source-name
           [candidate css-compute-candidate?])
@@ -1428,42 +2315,61 @@ Returns the authored property name that produced a candidate.
 If this differs from @racket[(css-compute-candidate-name candidate)], then the
 candidate came from shorthand expansion rather than from an authored longhand.}
 
-@defproc[(css-compute-style-trace-custom-property-results
-          [trace css-compute-style-trace?])
-         list?]{
-Returns per-property winner-selection records for custom properties.}
+@defproc[(css-compute-var-resolution? [v any/c])
+         boolean?]{
+Recognizes trace entries for one custom-property or style-property variable
+resolution step.}
 
-@defproc[(css-compute-style-trace-var-resolutions
-          [trace css-compute-style-trace?])
-         list?]{
-Returns variable-resolution records describing resolved values, referenced
-custom properties, and whether cycle handling was encountered.}
+@defproc[(css-compute-var-resolution-name
+          [resolution css-compute-var-resolution?])
+         string?]{
+Returns the property name whose value was resolved.}
+
+@defproc[(css-compute-var-resolution-raw-value
+          [resolution css-compute-var-resolution?])
+         string?]{
+Returns the raw value before @tt{var(...)} substitution.}
+
+@defproc[(css-compute-var-resolution-resolved-value
+          [resolution css-compute-var-resolution?])
+         string?]{
+Returns the value after the reduced resolver substituted what it could.}
+
+@defproc[(css-compute-var-resolution-references
+          [resolution css-compute-var-resolution?])
+         (listof string?)]{
+Returns the custom-property names referenced while resolving the value.}
+
+@defproc[(css-compute-var-resolution-cycle?
+          [resolution css-compute-var-resolution?])
+         boolean?]{
+Reports whether cycle handling was encountered while resolving the value.}
 
 @defproc[(css-find-declarations [stylesheet css-stylesheet?]
                                 [name string?])
-         list?]{
+         (listof css-declaration?)]{
 Finds declarations whose property name matches @racket[name]
 case-insensitively.}
 
 @defproc[(css-query-selector [stylesheet css-stylesheet?]
                              [selector string?])
-         list?]{
+         (listof css-style-rule?)]{
 Finds style rules whose selector groups include @racket[selector].}
 
 @defproc[(css-find-rules-by-pseudo [stylesheet css-stylesheet?]
                                    [pseudo-name string?])
-         list?]{
+         (listof css-style-rule?)]{
 Finds style rules whose derived selector structure contains a pseudo selector
 with the given name.}
 
 @defproc[(css-find-media-queries [stylesheet css-stylesheet?])
-         list?]{
+         (listof css-media-query?)]{
 Returns the derived @racket[css-media-query?] nodes collected from
 @litchar|{@media}| rules in the stylesheet.}
 
 @defproc[(css-find-supports-features [stylesheet css-stylesheet?]
                                      [name (or/c string? #f) #f])
-         list?]{
+         (listof css-supports-feature?)]{
 Returns the typed @racket[css-supports-feature?] leaves collected from
 @litchar|{@supports}| rules.
 
@@ -1471,7 +2377,7 @@ When @racket[name] is provided, the result is filtered case-insensitively by
 feature name.}
 
 @defproc[(css-recovery-nodes [stylesheet css-stylesheet?])
-         list?]{
+         (listof css-recovery?)]{
 Returns all recovery nodes in the stylesheet.}
 
 @defproc[(css-has-recovery? [stylesheet css-stylesheet?])
@@ -1479,16 +2385,17 @@ Returns all recovery nodes in the stylesheet.}
 Reports whether the stylesheet contains any recovery nodes.}
 
 @defproc[(css-recovery-summary [stylesheet css-stylesheet?])
-         list?]{
-Summarizes recovery nodes by kind.}
+         (listof (cons/c symbol? exact-nonnegative-integer?))]{
+Summarizes recovery nodes by kind as a sorted association list of
+@racket[(kind . count)] pairs.}
 
-@subsection{Error Reference}
+@subsubsection{Error Reference}
 
-The parser scaffold uses a CSS-specific exception type rather than generic
+The parser uses a CSS-specific exception type rather than generic
 contract or read errors for parser failures.
 
 @defproc[(exn:fail:css? [v any/c]) boolean?]{
-Recognizes CSS parser exceptions raised by the scaffold.}
+Recognizes CSS parser exceptions.}
 
 @defproc[(exn:fail:css-source [e exn:fail:css?])
          any/c]{
@@ -1498,7 +2405,7 @@ Returns the source value attached to a CSS parser exception.}
          any/c]{
 Returns parser-specific detail attached to a CSS parser exception.}
 
-@subsection{Parser Procedure Reference}
+@subsubsection{Parser Procedure Reference}
 
 @defproc[(css-parser? [v any/c]) boolean?]{
 Recognizes parser procedures created by @racket[make-css-parser].
