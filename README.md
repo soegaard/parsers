@@ -19,16 +19,21 @@ modern CSS standard over time.
 The current CSS library provides:
 
 - parsing from strings or ports
-- a structured AST for stylesheets, rules, declarations, and comments
-- a normalized serializer
-- basic query helpers for selector and declaration lookup
+- a structured AST for stylesheets, rules, at-rules, declarations, comments,
+  recovery nodes, and source spans
+- normalized and source-preserving serialization paths
+- selector, declaration, custom-property, media, supports, and recovery query
+  helpers
+- a reduced exact-target computed-style layer for tooling
+- rewrite helpers for common CSS transformation workflows
 
 If we later need fixed compatibility targets, we can add additional module
 paths such as `parsers/css-snapshot-2026`.
 
-Shared design notes live in `DESIGN.md`.
+## Local Notes
 
-Reference notes for the parser live in `reference/`.
+`DESIGN.md` and `reference/` are intentionally local-only working notes.
+They are ignored by Git and are not part of the package release.
 
 ## Documentation
 
