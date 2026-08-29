@@ -6,6 +6,7 @@
                               current-css-standard
                               parse-css
                               parse-stylesheet)
+                     parsers/toml
                      (except-in parsers/private/css-ast
                                 css-at-rule
                                 css-comment
@@ -31,6 +32,12 @@
                          parsers/css))
      the-eval))
 
+@(define toml-eval
+   (let ([the-eval (make-base-eval)])
+     (the-eval '(require racket/base
+                         parsers/toml))
+     the-eval))
+
 @title{Parsers}
 @author+email["Jens Axel Søgaard" "jensaxel@soegaard.net"]
 
@@ -38,11 +45,11 @@
 The @tt{parsers} library and documentation were written with the help of Codex.
 
 The @tt{parsers} package is a collection of reusable parsers.
-This first release provides a CSS parser and a few CSS tools for inspection
-and rewriting.
+This release provides CSS and TOML parsers. The CSS library also includes
+tools for inspection and rewriting.
 
 The manual is organized by language. Future parsers will get their own
-chapters; the CSS chapter below documents the current public API.
+chapters.
 
 @local-table-of-contents[]
 
@@ -2431,3 +2438,154 @@ Returns parser-specific detail attached to a CSS parser exception.}
 @defproc[(css-parser? [v any/c]) boolean?]{
 Recognizes parser procedures created by @racket[make-css-parser].
 }
+
+@section{TOML}
+
+@defmodule[parsers/toml
+           #:use-sources (parsers/private/toml-ast
+                          parsers/private/toml-parser)]
+
+TOML is a configuration-file format with explicit tables, key/value entries,
+arrays, inline tables, strings, numbers, booleans, and date/time values.
+@racketmodname[parsers/toml] parses that structural syntax into a small,
+source-preserving AST suitable for configuration tooling and inspection.
+
+@subsection{Quick Start}
+
+@examples[#:eval toml-eval
+(define document
+  (parse-toml
+   "[package]\nname = \"parsers\"\nfeatures = [\"css\", \"toml\"]\n"))
+(toml-document? document)
+(serialize-toml document)
+]
+
+@subsection{Model and Limitations}
+
+The parser preserves the complete original source in every
+@racket[toml-document?], so @racket[serialize-toml] reproduces the parsed text
+exactly. The AST represents document order, table headers, assignments, nested
+arrays and inline tables, comments, and lexical recovery nodes.
+
+This is a structural parser, not a TOML semantic evaluator. In particular, it
+does not reject duplicate keys, resolve dotted paths into a nested environment,
+enforce table redefinition rules, or decode TOML escapes into Racket values.
+Those policies belong in a separate interpretation layer.
+
+@subsection{Reference}
+
+@defproc[(parse-toml [source (or/c string? input-port?)]) toml-document?]{
+Parses a complete TOML document supplied as a string or input port.}
+
+@defproc[(parse-toml-port [in input-port?]) toml-document?]{
+Parses TOML source from @racket[in].}
+
+@defproc[(serialize-toml [document toml-document?]) string?]{
+Returns the exact source retained by @racket[document].}
+
+@defproc[(toml-document-find-tables [document toml-document?]
+                                    [path (or/c string? (listof string?))])
+         (listof toml-table?)]{
+Returns tables whose dotted key path matches @racket[path] exactly, in source
+order. A string path is split on dots; use a list for keys that contain dots.}
+
+@defproc[(toml-table-find-values [table toml-table?]
+                                 [path (or/c string? (listof string?))])
+         list?]{
+Returns values assigned by the exact dotted @racket[path] in @racket[table],
+in source order.}
+
+@defstruct*[#:link-target? #f toml-source-span
+            ([start exact-nonnegative-integer?] [end exact-nonnegative-integer?])
+            #:transparent #:omit-constructor]{
+Represents a half-open character range. @racket[start] is the zero-based first
+offset and @racket[end] is the first offset after the node.}
+
+@defstruct*[#:link-target? #f toml-document
+            ([items list?] [source string?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a complete TOML file. @racket[items] contains top-level tables,
+assignments before the first table, comments, and recovery nodes in source
+order. @racket[source] is the original text and @racket[span] covers it.}
+
+@defstruct*[#:link-target? #f toml-table
+            ([key toml-key?] [array? boolean?] [entries list?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a table header. @racket[key] is its dotted path;
+@racket[array?] distinguishes @litchar|{[[table]]}| from @litchar|{[table]}|;
+@racket[entries] contains following assignments and comments; and
+@racket[span] covers the header.}
+
+@defstruct*[#:link-target? #f toml-key-value
+            ([key toml-key?] [value toml-value?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents one assignment. @racket[key] is the dotted TOML key,
+@racket[value] is its parsed structural value, and @racket[span] covers the
+whole assignment.}
+
+@defproc[(toml-value? [value any/c]) boolean?]{
+Recognizes a parsed TOML scalar, array, or inline-table value.}
+
+@defstruct*[#:link-target? #f toml-key
+            ([parts (listof string?)] [text string?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a dotted key. @racket[parts] contains each key component,
+@racket[text] preserves the authored text, and @racket[span] covers it.}
+
+@defstruct*[#:link-target? #f toml-array
+            ([values list?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents an array. @racket[values] contains parsed values in order and
+@racket[span] covers its brackets and contents.}
+
+@defstruct*[#:link-target? #f toml-inline-table
+            ([entries (listof toml-key-value?)] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents an inline table. @racket[entries] contains its assignments in order
+and @racket[span] covers its braces and contents.}
+
+@defstruct*[#:link-target? #f toml-string
+            ([text string?] [value string?] [literal? boolean?]
+             [multiline? boolean?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a quoted string. @racket[text] preserves delimiters and escapes;
+@racket[value] removes delimiters without decoding escapes; @racket[literal?]
+identifies single-quoted strings; @racket[multiline?] identifies triple-quoted
+strings; and @racket[span] covers the source.}
+
+@defstruct*[#:link-target? #f toml-boolean
+            ([text string?] [value boolean?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents @tt{true} or @tt{false}. @racket[text] is the source spelling,
+@racket[value] is the Racket boolean, and @racket[span] covers the source.}
+
+@defstruct*[#:link-target? #f toml-number
+            ([text string?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a TOML numeric spelling. @racket[text] is retained without numeric
+conversion and @racket[span] covers its source.}
+
+@defstruct*[#:link-target? #f toml-date-time
+            ([text string?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a TOML date, time, or date-time spelling. @racket[text] retains the
+authored value and @racket[span] covers the source.}
+
+@defstruct*[#:link-target? #f toml-bare-value
+            ([text string?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents an unclassified bare value. @racket[text] is the source spelling
+and @racket[span] covers it.}
+
+@defstruct*[#:link-target? #f toml-comment
+            ([text string?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a comment. @racket[text] includes its leading @tt{#};
+@racket[span] covers the comment excluding its line ending.}
+
+@defstruct*[#:link-target? #f toml-recovery
+            ([reason string?] [text string?] [span toml-source-span?])
+            #:transparent #:omit-constructor]{
+Represents malformed source the parser retained. @racket[reason] explains the
+issue, @racket[text] retains the affected source, and @racket[span] identifies
+its location.}

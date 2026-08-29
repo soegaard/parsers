@@ -11,10 +11,13 @@ The repository is split into three Racket packages:
 - `parsers-doc`
   Scribble manual
 
-The first parser target is CSS.
+The current parser targets are CSS and TOML.
 
 The public CSS entry point is `parsers/css`, which is intended to track the
 modern CSS standard over time.
+
+The public TOML entry point is `parsers/toml`. It parses TOML 1.0 structure
+into a source-preserving AST for configuration tooling and inspection.
 
 The current CSS library provides:
 
@@ -26,6 +29,14 @@ The current CSS library provides:
   helpers
 - a reduced exact-target computed-style layer for tooling
 - rewrite helpers for common CSS transformation workflows
+
+The TOML library provides:
+
+- parsing from strings or ports
+- an explicit AST for documents, tables, keys, values, comments, and recovery
+  nodes
+- exact source-preserving serialization
+- exact table and key lookup helpers
 
 If we later need fixed compatibility targets, we can add additional module
 paths such as `parsers/css-snapshot-2026`.

@@ -2,7 +2,7 @@
 
 (define collection 'multi)
 (define pkg-desc
-  "Reusable parsers. The initial public parser module is parsers/css.")
+  "Reusable parsers for CSS and TOML.")
 (define pkg-authors '(soegaard))
 (define license 'MIT)
 (define deps '("base"
