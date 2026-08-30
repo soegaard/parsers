@@ -11,7 +11,7 @@ The repository is split into three Racket packages:
 - `parsers-doc`
   Scribble manual
 
-The current parser targets are CSS, TOML, and Lua.
+The current parser targets are CSS, TOML, Lua, and Scheme.
 
 The public CSS entry point is `parsers/css`, which is intended to track the
 modern CSS standard over time.
@@ -21,6 +21,9 @@ into a source-preserving AST for configuration tooling and inspection.
 
 The public Lua entry point is `parsers/lua`. It parses Lua 5.4 lexical and
 statement-like structure into a source-preserving AST for source tooling.
+
+The public Scheme entry point is `parsers/scheme`. It parses reader structure
+for R5RS, R6RS, R7RS, Chez, Guile, CHICKEN, and Gambit.
 
 The current CSS library provides:
 
@@ -49,6 +52,14 @@ The Lua library provides:
 - exact source-preserving serialization
 - statement inspection by leading Lua keyword or form kind
 
+The Scheme library provides:
+
+- parsing from strings or ports with an explicit dialect choice
+- source-preserving documents, lists, vectors, bytevectors, reader
+  abbreviations, atoms, comments, and recovery nodes
+- exact source-preserving serialization
+- reader-form and atom inspection helpers
+
 If we later need fixed compatibility targets, we can add additional module
 paths such as `parsers/css-snapshot-2026`.
 
@@ -73,6 +84,15 @@ If the local CSS corpus is available at `/private/tmp/lexers-css-corpus`, run:
 
 ```sh
 racket tools/check-css-corpus.rkt
+```
+
+The checker skips cleanly when the corpus directory is absent.
+
+If the local Scheme corpus is available at `/private/tmp/lexers-scheme-corpus`,
+run one bounded process:
+
+```sh
+racket -c tools/check-scheme-corpus.rkt --memory-limit-mb 256
 ```
 
 The checker skips cleanly when the corpus directory is absent.

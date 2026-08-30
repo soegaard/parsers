@@ -7,6 +7,7 @@
                               parse-css
                               parse-stylesheet)
                      parsers/lua
+                     parsers/scheme
                      parsers/toml
                      (except-in parsers/private/css-ast
                                 css-at-rule
@@ -45,6 +46,12 @@
                          parsers/lua))
      the-eval))
 
+@(define scheme-eval
+   (let ([the-eval (make-base-eval)])
+     (the-eval '(require racket/base
+                         parsers/scheme))
+     the-eval))
+
 @title{Parsers}
 @author+email["Jens Axel Søgaard" "jensaxel@soegaard.net"]
 
@@ -52,7 +59,7 @@
 The @tt{parsers} library and documentation were written with the help of Codex.
 
 The @tt{parsers} package is a collection of reusable parsers.
-This release provides CSS, TOML, and Lua parsers. The CSS library also
+This release provides CSS, TOML, Lua, and Scheme parsers. The CSS library also
 includes tools for inspection and rewriting.
 
 The manual is organized by language. Future parsers will get their own
@@ -2697,3 +2704,152 @@ Represents one non-trivia lexer-derived token. @racket[kind] is one of
 Represents malformed input reported by the lexer. @racket[reason] describes
 the issue, @racket[text] retains the malformed source, and @racket[span]
 identifies its location.}
+
+@section{Scheme}
+
+@defmodule[parsers/scheme
+           #:use-sources (parsers/private/scheme-ast
+                          parsers/private/scheme-parser)]
+
+Scheme is a family of Lisp languages whose programs and data use a common
+reader syntax. @racketmodname[parsers/scheme] parses reader-level structure
+for R5RS, R6RS, R7RS, Chez Scheme, Guile, CHICKEN, and Gambit. Select the
+reader dialect with @racket[#:dialect] when parsing.
+
+@subsection{Quick Start}
+
+@examples[#:eval scheme-eval
+(define document
+  (parse-scheme
+   ";; configuration\n(define settings '(#:theme \"light\"))\n"
+   #:dialect 'guile))
+(map scheme-document-dialect (list document))
+(map scheme-atom-text (scheme-find-atoms-by-text document "define"))
+(serialize-scheme document)
+]
+
+@subsection{Dialect Model}
+
+The shared parser model is based on the reports' datum syntax: atoms, reader
+abbreviations, ordinary lists, vectors, and R6RS/R7RS bytevectors. It also
+preserves comments and reader directives. The source lexer selects the dialect
+and classifies implementation-specific token roles such as Guile prefix
+keywords, Gambit suffix keywords, CHICKEN foreign abbreviations, and Chez
+extensions.
+
+@itemlist[
+ @item{@racket['r5rs]: the R5RS reader baseline.}
+ @item{@racket['r6rs]: R6RS reader syntax, including bytevectors and datum
+       comments.}
+ @item{@racket['r7rs]: R7RS reader syntax and directives; datum-label syntax
+       is preserved as lexer-backed source.}
+ @item{@racket['chez]: Chez reader extensions are retained as lexer-backed
+       source when they do not have a shared structural opener.}
+ @item{@racket['guile]: Guile reader extensions and prefix keywords.}
+ @item{@racket['chicken]: CHICKEN reader abbreviations, including foreign
+       reader forms.}
+ @item{@racket['gambit]: Gambit reader forms and suffix keywords.}]
+
+This dialect list controls reader tokenization; it does not evaluate code or
+claim semantic compatibility between implementations.
+
+@subsection{Limitations}
+
+The parser is a source tooling reader, not an evaluator, macro expander, or
+type checker. It does not resolve datum labels, evaluate reader extensions, or
+validate every implementation-specific datum form. Instead it represents the
+common recursive structure and preserves other lexer-recognized syntax exactly
+as source-backed atomic forms or recovery nodes.
+
+@subsection{Reference}
+
+@defthing[scheme-parser-dialects (listof symbol?)]{
+Lists the supported reader dialects: @racket['r5rs], @racket['r6rs],
+@racket['r7rs], @racket['chez], @racket['guile], @racket['chicken], and
+@racket['gambit].}
+
+@defproc[(parse-scheme [source (or/c string? input-port?)]
+                       [#:dialect dialect (or/c 'r5rs 'r6rs 'r7rs 'chez
+                                                 'guile 'chicken 'gambit) 'r5rs])
+         scheme-document?]{
+Parses Scheme supplied as a string or input port using @racket[dialect].}
+
+@defproc[(parse-scheme-port [in input-port?]
+                            [#:dialect dialect (or/c 'r5rs 'r6rs 'r7rs 'chez
+                                                      'guile 'chicken 'gambit) 'r5rs])
+         scheme-document?]{
+Parses Scheme source from @racket[in] using @racket[dialect].}
+
+@defproc[(serialize-scheme [document scheme-document?]) string?]{
+Returns the exact source retained by @racket[document].}
+
+@defproc[(scheme-document-datums [document scheme-document?])
+         (listof scheme-datum?)]{
+Returns all reader forms, comments, and recoveries in source order.}
+
+@defproc[(scheme-find-atoms-by-text [document scheme-document?] [text string?])
+         (listof scheme-atom?)]{
+Returns atoms whose exact source text equals @racket[text], recursively in
+source order.}
+
+@defproc[(scheme-datum? [value any/c]) boolean?]{
+Recognizes a parsed reader form, preserved comment, or recovery node.}
+
+@defstruct*[#:link-target? #f scheme-source-span
+            ([start exact-nonnegative-integer?] [end exact-nonnegative-integer?])
+            #:transparent #:omit-constructor]{
+Represents a half-open character range. @racket[start] is the zero-based first
+offset and @racket[end] is the first offset after the node.}
+
+@defstruct*[#:link-target? #f scheme-document
+            ([forms (listof scheme-datum?)] [source string?] [dialect symbol?]
+             [span scheme-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a complete Scheme source document. @racket[forms] contains reader
+forms, comments, and recoveries in source order; @racket[source] retains the
+complete text; @racket[dialect] records the reader mode; and @racket[span]
+covers the document.}
+
+@defstruct*[#:link-target? #f scheme-list
+            ([opener string?] [items (listof scheme-datum?)]
+             [tail (or/c scheme-datum? #f)] [span scheme-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a list opened by @racket[opener], which is @tt{(}, @tt{[}, or
+an opening brace. @racket[items] contains the reader forms before a dotted
+tail, @racket[tail] is that optional tail, and @racket[span] covers the form.}
+
+@defstruct*[#:link-target? #f scheme-vector
+            ([kind (or/c 'vector 'bytevector)] [items (listof scheme-datum?)]
+             [span scheme-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a vector or bytevector. @racket[kind] identifies the opener,
+@racket[items] contains its reader forms, and @racket[span] covers the form.}
+
+@defstruct*[#:link-target? #f scheme-abbreviation
+            ([prefix string?] [datum scheme-datum?] [span scheme-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a reader abbreviation. @racket[prefix] is text such as @tt{'},
+@tt{`}, @tt{,}, @tt{,@}, @tt{#'}, or @tt{#,}; @racket[datum] is its following
+form; and @racket[span] covers both.}
+
+@defstruct*[#:link-target? #f scheme-atom
+            ([kind symbol?] [text string?] [tags (listof symbol?)]
+             [span scheme-source-span?])
+            #:transparent #:omit-constructor]{
+Represents an atomic reader form. @racket[kind] classifies common atoms such
+as identifiers, booleans, numbers, strings, characters, and keywords;
+@racket[text] is the exact source spelling; @racket[tags] retains lexer roles;
+and @racket[span] covers the atom.}
+
+@defstruct*[#:link-target? #f scheme-comment
+            ([kind (or/c 'line 'block 'datum 'reader-directive)] [text string?]
+             [span scheme-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a preserved comment or reader directive. @racket[kind] identifies
+its reader role, @racket[text] retains exact text, and @racket[span] covers it.}
+
+@defstruct*[#:link-target? #f scheme-recovery
+            ([reason string?] [text string?] [span scheme-source-span?])
+            #:transparent #:omit-constructor]{
+Represents malformed reader input. @racket[reason] explains the problem,
+@racket[text] retains the affected source, and @racket[span] identifies it.}
