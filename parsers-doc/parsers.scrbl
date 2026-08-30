@@ -6,6 +6,7 @@
                               current-css-standard
                               parse-css
                               parse-stylesheet)
+                     parsers/lua
                      parsers/toml
                      (except-in parsers/private/css-ast
                                 css-at-rule
@@ -38,6 +39,12 @@
                          parsers/toml))
      the-eval))
 
+@(define lua-eval
+   (let ([the-eval (make-base-eval)])
+     (the-eval '(require racket/base
+                         parsers/lua))
+     the-eval))
+
 @title{Parsers}
 @author+email["Jens Axel Søgaard" "jensaxel@soegaard.net"]
 
@@ -45,8 +52,8 @@
 The @tt{parsers} library and documentation were written with the help of Codex.
 
 The @tt{parsers} package is a collection of reusable parsers.
-This release provides CSS and TOML parsers. The CSS library also includes
-tools for inspection and rewriting.
+This release provides CSS, TOML, and Lua parsers. The CSS library also
+includes tools for inspection and rewriting.
 
 The manual is organized by language. Future parsers will get their own
 chapters.
@@ -2589,3 +2596,104 @@ Represents a comment. @racket[text] includes its leading @tt{#};
 Represents malformed source the parser retained. @racket[reason] explains the
 issue, @racket[text] retains the affected source, and @racket[span] identifies
 its location.}
+
+@section{Lua}
+
+@defmodule[parsers/lua
+           #:use-sources (parsers/private/lua-ast
+                          parsers/private/lua-parser)]
+
+Lua is a lightweight, embeddable programming language commonly used for
+configuration, scripting, and application extension. @racketmodname[parsers/lua]
+uses the Lua 5.4 lexer to provide a small source-preserving structural model
+for tools that need to inspect or rewrite source without evaluating it.
+
+@subsection{Quick Start}
+
+@examples[#:eval lua-eval
+(define chunk
+  (parse-lua
+   "-- greeting\nlocal message = \"hello\"\nfunction greet(name)\n  return message .. name\nend\n"))
+(map lua-statement-kind (lua-chunk-statements chunk))
+(serialize-lua chunk)
+]
+
+@subsection{Model and Limitations}
+
+The parser consumes the derived token stream from @racketmodname[lexers/lua].
+It groups non-trivia tokens into statement-like source forms, separates
+comments, preserves exact token text and positions, and retains the complete
+original source. Thus @racket[serialize-lua] exactly reproduces parsed input.
+
+The statement grouping follows physical source lines and is intentionally not
+a full Lua grammar. It does not build expression trees, resolve names, execute
+code, validate block matching, or model Lua runtime semantics. Those concerns
+belong in later syntax and interpretation layers.
+
+@subsection{Reference}
+
+@defproc[(parse-lua [source (or/c string? input-port?)]) lua-chunk?]{
+Parses Lua supplied as a string or input port into a source-preserving chunk.}
+
+@defproc[(parse-lua-port [in input-port?]) lua-chunk?]{
+Parses Lua source from @racket[in].}
+
+@defproc[(serialize-lua [chunk lua-chunk?]) string?]{
+Returns the exact source retained by @racket[chunk].}
+
+@defproc[(lua-chunk-statements [chunk lua-chunk?])
+         (listof lua-statement?)]{
+Returns all statement-like forms from @racket[chunk] in source order.}
+
+@defproc[(lua-find-statements-by-kind [chunk lua-chunk?] [kind symbol?])
+         (listof lua-statement?)]{
+Returns statement-like forms whose leading-kind classification equals
+@racket[kind]. Typical kinds include @racket['local], @racket['function],
+@racket['if], @racket['return], @racket['end], and
+@racket['expression-or-assignment].}
+
+@defstruct*[#:link-target? #f lua-source-span
+            ([start exact-nonnegative-integer?] [end exact-nonnegative-integer?])
+            #:transparent #:omit-constructor]{
+Represents a half-open character range. @racket[start] is the zero-based first
+offset and @racket[end] is the first offset after the node.}
+
+@defstruct*[#:link-target? #f lua-chunk
+            ([forms (listof (or/c lua-statement? lua-comment? lua-recovery?))]
+             [source string?] [span lua-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a complete Lua source file. @racket[forms] contains statement-like
+forms, comments, and recoveries in source order. @racket[source] retains the
+complete original text and @racket[span] covers it.}
+
+@defstruct*[#:link-target? #f lua-statement
+            ([kind symbol?] [text string?] [tokens (listof lua-token?)]
+             [span lua-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a statement-like source form. @racket[kind] classifies its leading
+keyword or token, @racket[text] retains the exact source from its first through
+last non-trivia token, @racket[tokens] contains those tokens in order, and
+@racket[span] covers that text.}
+
+@defstruct*[#:link-target? #f lua-comment
+            ([text string?] [span lua-source-span?])
+            #:transparent #:omit-constructor]{
+Represents a line or long comment. @racket[text] includes its Lua comment
+delimiter and @racket[span] covers its source.}
+
+@defstruct*[#:link-target? #f lua-token
+            ([kind symbol?] [tags (listof symbol?)] [text string?]
+             [span lua-source-span?])
+            #:transparent #:omit-constructor]{
+Represents one non-trivia lexer-derived token. @racket[kind] is one of
+@racket['keyword], @racket['constant], @racket['identifier], @racket['string],
+@racket['number], @racket['operator], @racket['delimiter], or
+@racket['unknown]. @racket[tags] retains the lexer classifications,
+@racket[text] retains exact source text, and @racket[span] covers it.}
+
+@defstruct*[#:link-target? #f lua-recovery
+            ([reason string?] [text string?] [span lua-source-span?])
+            #:transparent #:omit-constructor]{
+Represents malformed input reported by the lexer. @racket[reason] describes
+the issue, @racket[text] retains the malformed source, and @racket[span]
+identifies its location.}

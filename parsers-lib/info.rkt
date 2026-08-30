@@ -2,7 +2,7 @@
 
 (define collection 'multi)
 (define pkg-desc
-  "Reusable parsers for CSS and TOML.")
+  "Reusable parsers for CSS, TOML, and Lua.")
 (define pkg-authors '(soegaard))
 (define license 'MIT)
 (define deps '("base"
